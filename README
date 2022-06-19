@@ -1,5 +1,0 @@
-//length | id body
-以请求响应模型来做的RPC 其协议非常简单为
-PayloadLength:int| isRequest:bool id:int body:Bytes
-
-由id保证顺序请求 乱序响应——但是并不解决大body的拥塞问题
