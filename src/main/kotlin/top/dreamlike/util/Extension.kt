@@ -12,11 +12,8 @@ suspend fun async(fn: suspend () -> Unit) {
     }
 }
 
-//提交一个空方法直接启动线程
-fun SingleThreadVertx() = Vertx.vertx(vertxOptionsOf(eventLoopPoolSize = 1)).apply {
-    exceptionHandler { println(it.message) }
-    runOnContext { }
-}
+
+fun SingleThreadVertx() = Vertx.vertx(vertxOptionsOf(eventLoopPoolSize = 1))
 
 /**
  * 从startIndex开始删除元素

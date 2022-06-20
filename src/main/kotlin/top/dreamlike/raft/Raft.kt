@@ -1,5 +1,7 @@
 package top.dreamlike.raft
 
+import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.Vertx
 import io.vertx.core.net.SocketAddress
 import io.vertx.kotlin.coroutines.dispatcher
@@ -39,7 +41,7 @@ class Raft(
     //三个持久化状态 委托给状态机持久化
     var currentTerm: Int = 0
     var votedFor: ServerId? = null
-    var logs = mutableListOf<Log>()
+//
 
     var logBase = 0
 
@@ -69,9 +71,19 @@ class Raft(
 
 
     //todo 日志恢复
-    fun start() = stateMachine.init()
-        .compose { rpcHandler.init(singleThreadVertx, raftPort) }
-        .onSuccess { startTimeoutCheck() }
+    /**
+     * 回调跑在Raft实例绑定的EventLoop上面
+     */
+    fun start(): Future<Unit> {
+        val promise = Promise.promise<Unit>()
+        singleThreadVertx.runOnContext {
+            stateMachine.init()
+                .compose { rpcHandler.init(singleThreadVertx, raftPort) }
+                .onSuccess { startTimeoutCheck() }
+                .onSuccess(promise::complete)
+        }
+        return promise.future()
+    }
 
 
     fun startTimeoutCheck() {
@@ -229,9 +241,11 @@ class Raft(
         lead
     }
 
+    //todo 这里可以插入一个applied的回调
+    /**
+     * 外部调用的一个接口所以要确保线程安全
+     */
     fun addLog(command: Command) {
-        singleThreadVertx.runOnContext {
-            logs.add(Log(stateMachine.getNowLogIndex() + 1, currentTerm, command.toByteArray()))
-        }
+        stateMachine.addLog(command)
     }
 }
