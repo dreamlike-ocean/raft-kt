@@ -19,8 +19,13 @@ import top.dreamlike.raft.rpc.entity.AppendRequest
 import top.dreamlike.raft.rpc.entity.RequestVote
 import top.dreamlike.util.CountDownLatch
 import top.dreamlike.util.IntAdder
+import top.dreamlike.util.NonBlocking
+import top.dreamlike.util.SwitchThread
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
 import kotlin.coroutines.CoroutineContext
+import kotlin.io.path.Path
 import kotlin.random.Random
 
 typealias ServerId = String
@@ -38,14 +43,53 @@ class Raft(
         const val heartBeat = 100L
     }
 
+    val metaInfo = FileChannel.open(
+        Path("raft-$me-meta"),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+        StandardOpenOption.READ
+    ).map(FileChannel.MapMode.READ_WRITE, 0, 4 + 4 + 1 + Byte.MAX_VALUE.toLong())
+
     //三个持久化状态 委托给状态机持久化
     var currentTerm: Int = 0
+        set(value) {
+            field = value
+            metaInfo.putInt(0, value)
+        }
+        get() = metaInfo.getInt(0)
+
     var votedFor: ServerId? = null
-//
+        set(value) {
+            field = value
+            if (value == null) metaInfo.put(8, 0)
+            else {
+                val array = value.toByteArray()
+                metaInfo.put(8, array.size.toByte())
+                metaInfo.put(9, array)
+            }
+        }
+        get() {
+            val length = metaInfo.get(8)
+            return if (length == 0.toByte())
+                null
+            else {
+                val array = ByteArray(length.toInt())
+                metaInfo.get(9, array)
+                String(array)
+            }
+        }
+
+    //方便快速恢复 也持久化
+    var commitIndex: Int = 0
+        set(value) {
+            field = value
+            metaInfo.putInt(4, value)
+        }
+        get() = metaInfo.getInt(4)
 
     var logBase = 0
 
-    var commitIndex: Int = 0
+
     var lastApplied: Int = 0
     var lastHearBeat = 0L
     var status: RaftStatus = RaftStatus.follower
@@ -64,17 +108,24 @@ class Raft(
     private val stateMachine = KVStateMachine(singleThreadVertx, this)
 
     init {
+        if (me.toByteArray().size > Byte.MAX_VALUE) {
+            throw IllegalArgumentException("raft-me长度超过Byte.MAX_VALUE")
+        }
         val rpcImpl = RaftRpcImpl(singleThreadVertx, this)
         rpc = rpcImpl
         rpcHandler = rpcImpl
+
     }
 
 
-    //todo 日志恢复
     /**
      * 回调跑在Raft实例绑定的EventLoop上面
      */
+    @NonBlocking
+    @SwitchThread(Raft::class)
     fun start(): Future<Unit> {
+        //预先触发缺页中断
+        println("恢复的状态为 term:$currentTerm voteFor:$votedFor commitIndex:$commitIndex")
         val promise = Promise.promise<Unit>()
         singleThreadVertx.runOnContext {
             stateMachine.init()
@@ -245,6 +296,8 @@ class Raft(
     /**
      * 外部调用的一个接口所以要确保线程安全
      */
+    @NonBlocking
+    @SwitchThread(Raft::class)
     fun addLog(command: Command) {
         stateMachine.addLog(command)
     }

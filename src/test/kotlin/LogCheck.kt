@@ -1,6 +1,7 @@
 import io.vertx.core.net.SocketAddress
 import org.junit.Assert
 import org.junit.Test
+import top.dreamlike.KV.DelCommand
 import top.dreamlike.KV.NoopCommand
 import top.dreamlike.raft.Raft
 import top.dreamlike.util.SingleThreadVertx
@@ -75,7 +76,7 @@ class LogCheck {
         }
         Assert.assertEquals(1, leader.size)
         //第二次提交日志
-        leader[0].addLog(NoopCommand())
+        leader[0].addLog(DelCommand("vertx-del".toByteArray()))
         TimeUnit.SECONDS.sleep(1)
         rafts.filter { it != oldLeader }.forEach {
             if (it.status == Raft.RaftStatus.lead) {
@@ -83,6 +84,7 @@ class LogCheck {
             } else {
                 Assert.assertEquals(it.getNowLogIndex(), 4)
             }
+            println("${it.me} commit -> ${it.commitIndex}")
         }
 
 

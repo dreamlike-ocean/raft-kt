@@ -6,6 +6,7 @@ import java.nio.channels.FileChannel
 
 // 其在buffer里面是这样的 index term length bytearray
 data class Log(val index: Int, val term: Int, val command: ByteArray) {
+    val size = 12 + command.size
 
     fun toBuffer() = Buffer.buffer().appendInt(index)
         .appendInt(term)
