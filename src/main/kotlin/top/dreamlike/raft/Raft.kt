@@ -15,6 +15,7 @@ import top.dreamlike.KV.NoopCommand
 import top.dreamlike.raft.rpc.RaftRpc
 import top.dreamlike.raft.rpc.RaftRpcHandler
 import top.dreamlike.raft.rpc.RaftRpcImpl
+import top.dreamlike.raft.rpc.entity.AppendReply
 import top.dreamlike.raft.rpc.entity.AppendRequest
 import top.dreamlike.raft.rpc.entity.RequestVote
 import top.dreamlike.util.CountDownLatch
@@ -105,7 +106,7 @@ class Raft(
 
     private val rpc: RaftRpc
     private val rpcHandler: RaftRpcHandler
-    private val stateMachine = KVStateMachine(singleThreadVertx, this)
+    val stateMachine = KVStateMachine(singleThreadVertx, this)
 
     init {
         if (me.toByteArray().size > Byte.MAX_VALUE) {
@@ -117,6 +118,11 @@ class Raft(
 
     }
 
+
+    /**
+     * 注意这里设计有问题，直接用了对应的实现
+     * 只用于特殊情况
+     */
 
     /**
      * 回调跑在Raft实例绑定的EventLoop上面
@@ -152,6 +158,7 @@ class Raft(
         }
 
     }
+
 
 
     internal fun becomeFollower(term: Int) {
@@ -191,20 +198,22 @@ class Raft(
 
     }
 
-    private fun broadcastLog() {
+    private fun broadcastLog(): MutableList<Future<AppendReply>> {
+        val list = mutableListOf<Future<AppendReply>>()
         for (peer in peers) {
             val peerServerId = peer.key
             val nextIndex = nextIndexes[peerServerId]
             if (nextIndex == null) continue
-            appendLogsToPeer(nextIndex, peer, peerServerId)
+            list.add(appendLogsToPeer(nextIndex, peer, peerServerId))
         }
+        return list;
     }
 
     private fun appendLogsToPeer(
         nextIndex: IntAdder,
         peer: MutableMap.MutableEntry<ServerId, SocketAddress>,
         peerServerId: ServerId
-    ) {
+    ): Future<AppendReply> {
         val nextIndexValue = nextIndex.value
         val logIndexSnap = getNowLogIndex()
         val ar = if (nextIndexValue > logIndexSnap) {
@@ -217,11 +226,15 @@ class Raft(
             AppendRequest(currentTerm, nextIndexValue - 1, term, commitIndex, slice)
         }
 
-        rpc.appendRequest(peer.value, ar).onSuccess {
+        return rpc.appendRequest(peer.value, ar).onSuccess {
             if (it.isSuccess) {
                 matchIndexes[peerServerId]?.value = logIndexSnap
                 nextIndexes[peerServerId]?.value = logIndexSnap + 1
+                val oldCommitindex = commitIndex
                 calCommitIndex()
+                if (oldCommitindex != commitIndex) {
+                    stateMachine.applyLog(commitIndex)
+                }
             } else {
                 if (it.term > currentTerm) {
                     becomeFollower(it.term)

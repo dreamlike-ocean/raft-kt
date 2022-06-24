@@ -28,6 +28,8 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     private val termBase = 0
     private val logDispatcher = LogDispatcher(rf.me)
 
+    val db = mutableMapOf<ByteArrayKey, ByteArray>()
+
     /**
      * 在 [top.dreamlike.raft.Raft.start] 中调用
      * 所以其中跑在EventLoop中
@@ -43,6 +45,22 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         return promise.future()
     }
 
+
+    /**
+     * @param endIndex 右端点（包含）
+     */
+    fun applyLog(endIndex: Int) {
+        val applyIndexInLogs = rf.lastApplied - logBase - 1
+        val endIndexInLogs = endIndex - logBase - 1
+        for (i in applyIndexInLogs + 1..endIndexInLogs) {
+            when (val command = Command.transToCommand(logs[i].command)) {
+                is NoopCommand -> {}
+                is SetCommand -> db[ByteArrayKey(command.key)] = command.value
+                is DelCommand -> db.remove(ByteArrayKey(command.key))
+                else -> {}
+            }
+        }
+    }
 
     //10 - 5 = 5
     //从1开始
@@ -90,7 +108,7 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     }
 
 
-    inner class LogDispatcher(val logFileName: String) {
+    inner class LogDispatcher(private val logFileName: String) {
         private val executor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "raft-$logFileName-log-Thread")
         }

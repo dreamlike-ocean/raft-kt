@@ -150,6 +150,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         rf.raftLog("leader{${msg.leaderId}}:${msg.prevLogIndex} ${msg.prevLogTerm} follower$nowIndex $term log_count:${msg.entries.size}")
         if (term == msg.prevLogTerm) {
             rf.insertLogs(msg.prevLogIndex, msg.entries)
+            rf.stateMachine.applyLog(rf.commitIndex)
             return AppendReply(rf.currentTerm, true)
         } else {
             return AppendReply(rf.currentTerm, false)
