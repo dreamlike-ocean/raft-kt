@@ -30,6 +30,10 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
 
     val db = mutableMapOf<ByteArrayKey, ByteArray>()
 
+    val queue = ArrayDeque<Triple<Int,ByteArray,Promise<ByteArray>>>()
+
+
+
     /**
      * 在 [top.dreamlike.raft.Raft.start] 中调用
      * 所以其中跑在EventLoop中
@@ -46,6 +50,11 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     }
 
 
+    fun get(key: ByteArray):ByteArray?{
+        return db[ByteArrayKey(key)]
+    }
+
+
     /**
      * @param endIndex 右端点（包含）
      */
@@ -59,7 +68,13 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
                 is DelCommand -> db.remove(ByteArrayKey(command.key))
                 else -> {}
             }
+            rf.lastApplied ++
+            while (!queue.isEmpty() && rf.lastApplied >= queue.firstOrNull()!!.first){
+                var (_, key, promise) = queue.removeFirst()
+                promise.complete(get(key))
+            }
         }
+
     }
 
     //10 - 5 = 5
@@ -106,6 +121,9 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
             logDispatcher.appendLogs(listOf(log))
         }
     }
+
+
+
 
 
     inner class LogDispatcher(private val logFileName: String) {

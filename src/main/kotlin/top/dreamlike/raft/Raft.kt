@@ -1,5 +1,6 @@
 package top.dreamlike.raft
 
+import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
@@ -25,6 +26,8 @@ import top.dreamlike.util.SwitchThread
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
+import java.util.concurrent.Executor
+import javax.security.auth.callback.Callback
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.Path
 import kotlin.random.Random
@@ -88,7 +91,6 @@ class Raft(
         }
         get() = metaInfo.getInt(4)
 
-    var logBase = 0
 
 
     var lastApplied: Int = 0
@@ -206,7 +208,7 @@ class Raft(
             if (nextIndex == null) continue
             list.add(appendLogsToPeer(nextIndex, peer, peerServerId))
         }
-        return list;
+        return list
     }
 
     private fun appendLogsToPeer(
@@ -238,7 +240,9 @@ class Raft(
             } else {
                 if (it.term > currentTerm) {
                     becomeFollower(it.term)
-                } else adjustNextIndex(peerServerId)
+                } else {
+                    adjustNextIndex(peerServerId)
+                }
             }
         }
     }
@@ -305,7 +309,6 @@ class Raft(
         lead
     }
 
-    //todo 这里可以插入一个applied的回调
     /**
      * 外部调用的一个接口所以要确保线程安全
      */
@@ -313,5 +316,28 @@ class Raft(
     @SwitchThread(Raft::class)
     fun addLog(command: Command) {
         stateMachine.addLog(command)
+    }
+
+    @NonBlocking
+    @SwitchThread(Raft::class)
+    fun lineRead(key: ByteArray, promise :Promise<ByteArray>):Future<ByteArray>{
+        val readIndex = commitIndex
+        val waiters = broadcastLog()
+        val downLatch = CountDownLatch(waiters.size / 2)
+        waiters.forEach { f -> f.onComplete { downLatch.countDown() } }
+        CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
+            downLatch.wait()
+            if (status != RaftStatus.lead) {
+                promise.fail("not leader")
+                return@launch
+            }
+            if (readIndex <= lastApplied){
+                promise.complete(stateMachine.get(key))
+            }else {
+                stateMachine.queue.addFirst(Triple(readIndex,key,promise))
+            }
+
+        }
+        return promise.future()
     }
 }

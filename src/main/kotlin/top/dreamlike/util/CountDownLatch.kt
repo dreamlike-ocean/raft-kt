@@ -9,6 +9,7 @@ class CountDownLatch(count: Int) {
     private var waiter: Continuation<Unit>? = null
     private val count = AtomicInteger(count)
     suspend fun wait() = suspendCoroutine<Unit> {
+        if (count.get() <= 0) it.resume(Unit)
         waiter = it
     }
 
