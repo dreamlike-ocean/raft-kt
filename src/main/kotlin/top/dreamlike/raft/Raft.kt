@@ -22,6 +22,7 @@ import top.dreamlike.raft.rpc.entity.RequestVote
 import top.dreamlike.util.CountDownLatch
 import top.dreamlike.util.IntAdder
 import top.dreamlike.util.NonBlocking
+import top.dreamlike.util.NotLeaderException
 import top.dreamlike.util.SwitchThread
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
@@ -186,7 +187,7 @@ class Raft(
             nextIndexes[it.key] = IntAdder(stateMachine.getNowLogIndex() + 1)
             matchIndexes[it.key] = IntAdder(0)
         }
-
+        leadId = me;
 
         //添加一个空日志 论文要求的
         addLog(NoopCommand())
@@ -314,13 +315,30 @@ class Raft(
      */
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command) {
+    fun addLog(command: Command, promise :Promise<Unit>) : Future<Unit>{
+        if (leadId != me) {
+            promise.fail(NotLeaderException("not leader!", peers[leadId]))
+            return promise.future()
+        }
         stateMachine.addLog(command)
+        return  promise.future()
     }
 
     @NonBlocking
     @SwitchThread(Raft::class)
+    fun addLog(command: Command) {
+        val promise = Promise.promise<Unit>()
+        addLog(command, promise)
+    }
+
+
+    @NonBlocking
+    @SwitchThread(Raft::class)
     fun lineRead(key: ByteArray, promise :Promise<ByteArray>):Future<ByteArray>{
+        if (leadId != me) {
+            promise.fail(NotLeaderException("not leader!", peers[leadId]))
+            return promise.future();
+        }
         val readIndex = commitIndex
         val waiters = broadcastLog()
         val downLatch = CountDownLatch(waiters.size / 2)
