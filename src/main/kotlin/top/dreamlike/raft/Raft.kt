@@ -315,47 +315,64 @@ class Raft(
      */
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command, promise :Promise<Unit>) : Future<Unit>{
+    fun addLog(command: Command, promise :Promise<Int>){
         if (leadId != me) {
             promise.fail(NotLeaderException("not leader!", peers[leadId]))
-            return promise.future()
         }
-        stateMachine.addLog(command)
-        return  promise.future()
+        stateMachine.addLog(command, promise)
     }
 
     @NonBlocking
     @SwitchThread(Raft::class)
     fun addLog(command: Command) {
-        val promise = Promise.promise<Unit>()
+        val promise = Promise.promise<Int>()
         addLog(command, promise)
     }
 
 
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun lineRead(key: ByteArray, promise :Promise<ByteArray>):Future<ByteArray>{
+    fun lineRead(key: ByteArray, promise :Promise<ByteArray?>){
         if (leadId != me) {
             promise.fail(NotLeaderException("not leader!", peers[leadId]))
-            return promise.future();
+            return
         }
-        val readIndex = commitIndex
-        val waiters = broadcastLog()
-        val downLatch = CountDownLatch(waiters.size / 2)
-        waiters.forEach { f -> f.onComplete { downLatch.countDown() } }
-        CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
-            downLatch.wait()
-            if (status != RaftStatus.lead) {
-                promise.fail("not leader")
-                return@launch
-            }
-            if (readIndex <= lastApplied){
-                promise.complete(stateMachine.get(key))
-            }else {
-                stateMachine.queue.addFirst(Triple(readIndex,key,promise))
-            }
+        singleThreadVertx.runOnContext {
+            val readIndex = commitIndex
+            val waiters = broadcastLog()
+            val downLatch = CountDownLatch(waiters.size / 2)
+            waiters.forEach { f -> f.onComplete { downLatch.countDown() } }
+            CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
+                downLatch.wait()
+                if (status != RaftStatus.lead) {
+                    promise.fail("not leader")
+                    return@launch
+                }
+                if (readIndex <= lastApplied){
+                    promise.complete(stateMachine.get(key))
+                }else {
+                    stateMachine.queue.offer(Triple(readIndex,key,promise::complete))
+                }
 
+            }
         }
-        return promise.future()
+        return
     }
+    @SwitchThread(Raft::class)
+    fun raftSnap(fn : (RaftSnap) -> Unit) {
+        singleThreadVertx.runOnContext {
+            val currentState = RaftState(currentTerm, votedFor, status, commitIndex, lastApplied)
+            val raftSnap = RaftSnap(
+                nextIndexes.mapValues { it.value.value },
+                matchIndexes.mapValues { it.value.value },
+                peers.toMap(),
+                currentState
+            )
+            fn(raftSnap)
+        }
+    }
+
+
+    data class RaftState(val currentTerm :Int, val voteFor :ServerId?, val status: RaftStatus, val commitIndex :Int, val applied : Int)
+    data class RaftSnap(val nextIndex :Map<ServerId, Int>, val matchIndex : Map<ServerId, Int>, val peers : Map<ServerId, SocketAddress>, val raftState: RaftState)
 }

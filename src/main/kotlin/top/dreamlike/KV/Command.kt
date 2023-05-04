@@ -2,14 +2,15 @@ package top.dreamlike.KV
 
 import top.dreamlike.util.Util
 
-abstract class Command {
+sealed class Command {
     companion object {
         fun transToCommand(command: ByteArray): Command {
             return when (command[0]) {
                 0.toByte() -> NoopCommand()
                 1.toByte() -> SetCommand(command)
                 2.toByte() -> DelCommand(command)
-                else -> NoopCommand()
+                3.toByte() -> ReadCommand(command)
+                else -> UnknownCommand(command)
             }
         }
     }
@@ -62,4 +63,14 @@ class DelCommand(command: ByteArray) : Command() {
         key.copyInto(array, 1)
         return array
     }
+}
+
+class ReadCommand(val key : ByteArray) :Command() {
+    override fun toByteArray() = key
+
+}
+
+
+class UnknownCommand(val rawCommand : ByteArray) : Command() {
+    override fun toByteArray() = rawCommand
 }

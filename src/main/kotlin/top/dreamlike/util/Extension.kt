@@ -1,19 +1,10 @@
 package top.dreamlike.util
 
 import io.vertx.core.Vertx
-import io.vertx.kotlin.core.vertxOptionsOf
-import kotlinx.coroutines.coroutineScope
-
-suspend fun async(fn: suspend () -> Unit) {
-    coroutineScope {
-        async {
-            fn()
-        }
-    }
-}
+import top.dreamlike.configurarion.singleVertxConfig
 
 
-fun SingleThreadVertx() = Vertx.vertx(vertxOptionsOf(eventLoopPoolSize = 1))
+fun SingleThreadVertx() = Vertx.vertx(singleVertxConfig())
 
 /**
  * 从startIndex开始删除元素
@@ -27,4 +18,10 @@ fun <E> MutableList<E>.removeAll(startIndex: Int): List<E> {
         list.add(removeAt(i))
     }
     return list
+}
+
+fun Vertx.countEventLoop() = this.nettyEventLoopGroup().count()
+
+fun main() {
+    println(Vertx.vertx().countEventLoop())
 }

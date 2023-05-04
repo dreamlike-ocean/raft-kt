@@ -12,6 +12,8 @@ import top.dreamlike.util.removeAll
 import java.nio.channels.FileChannel
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.Comparator
+import java.util.PriorityQueue
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -30,7 +32,11 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
 
     val db = mutableMapOf<ByteArrayKey, ByteArray>()
 
-    val queue = ArrayDeque<Triple<Int,ByteArray,Promise<ByteArray>>>()
+    /**
+     * 等待需要被apply的index , key , value回调
+     */
+    val queue = PriorityQueue<Triple<Int,ByteArray,(ByteArray?) -> Unit>>(Comparator.comparingInt{it.first})
+
 
 
 
@@ -66,12 +72,12 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
                 is NoopCommand -> {}
                 is SetCommand -> db[ByteArrayKey(command.key)] = command.value
                 is DelCommand -> db.remove(ByteArrayKey(command.key))
-                else -> {}
+                else -> continue
             }
             rf.lastApplied ++
             while (!queue.isEmpty() && rf.lastApplied >= queue.firstOrNull()!!.first){
-                var (_, key, promise) = queue.removeFirst()
-                promise.complete(get(key))
+                var (_, key, promise) = queue.poll()
+                promise(get(key))
             }
         }
 
@@ -114,11 +120,13 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
 
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command) {
+    fun addLog(command: Command, promise: Promise<Int>) {
         vertx.runOnContext {
-            val log = Log(getNowLogIndex() + 1, rf.currentTerm, command.toByteArray())
+            val index = getNowLogIndex() + 1
+            val log = Log(index, rf.currentTerm, command.toByteArray())
             logs.add(log)
             logDispatcher.appendLogs(listOf(log))
+            promise.complete(index)
         }
     }
 
