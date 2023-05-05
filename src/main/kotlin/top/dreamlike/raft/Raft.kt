@@ -1,6 +1,5 @@
 package top.dreamlike.raft
 
-import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
@@ -22,13 +21,11 @@ import top.dreamlike.raft.rpc.entity.RequestVote
 import top.dreamlike.util.CountDownLatch
 import top.dreamlike.util.IntAdder
 import top.dreamlike.util.NonBlocking
-import top.dreamlike.util.NotLeaderException
+import top.dreamlike.server.NotLeaderException
 import top.dreamlike.util.SwitchThread
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
-import java.util.concurrent.Executor
-import javax.security.auth.callback.Callback
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.Path
 import kotlin.random.Random
@@ -48,8 +45,11 @@ class Raft(
         const val heartBeat = 100L
     }
 
+    var enablePrintInfo = true
+
+    private val metaInfoPath = Path("raft-$me-meta")
     val metaInfo = FileChannel.open(
-        Path("raft-$me-meta"),
+        metaInfoPath,
         StandardOpenOption.CREATE,
         StandardOpenOption.WRITE,
         StandardOpenOption.READ
@@ -134,7 +134,7 @@ class Raft(
     @SwitchThread(Raft::class)
     fun start(): Future<Unit> {
         //预先触发缺页中断
-        println("恢复的状态为 term:$currentTerm voteFor:$votedFor commitIndex:$commitIndex")
+        raftLog("recover{voteFor ${votedFor}}")
         val promise = Promise.promise<Unit>()
         singleThreadVertx.runOnContext {
             stateMachine.init()
@@ -171,7 +171,7 @@ class Raft(
         lastHearBeat = System.currentTimeMillis()
     }
 
-    private fun becomeCandidate() {
+    fun becomeCandidate() {
         currentTerm++
         votedFor = me
         lastHearBeat = System.currentTimeMillis()
@@ -262,6 +262,7 @@ class Raft(
 
     private suspend fun startElection() {
         becomeCandidate()
+        raftLog("start election")
         val buffer = RequestVote(currentTerm, stateMachine.getNowLogIndex(), stateMachine.getLastLogTerm())
         val downLatch = CountDownLatch(peers.size / 2)
         for (address in peers) {
@@ -301,7 +302,10 @@ class Raft(
 
 
     fun raftLog(msg: String) {
-        println("[${LocalDateTime.now()} serverId:$me term:$currentTerm index = ${stateMachine.getNowLogIndex()}]: message:$msg")
+        if (!enablePrintInfo){
+            return
+        }
+        println("[${LocalDateTime.now()} serverId:$me term:$currentTerm index = ${stateMachine.getNowLogIndex()} status:${status}]: message:$msg")
     }
 
     enum class RaftStatus {
@@ -315,17 +319,23 @@ class Raft(
      */
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command, promise :Promise<Int>){
+    fun addLog(command: Command, promise :Promise<Unit>){
         if (leadId != me) {
-            promise.fail(NotLeaderException("not leader!", peers[leadId]))
+            promise.fail(
+                NotLeaderException(
+                    "not leader!",
+                    peers[leadId]
+                )
+            )
+            return
         }
-        stateMachine.addLog(command, promise)
+        stateMachine.addLog(command, promise::complete)
     }
 
     @NonBlocking
     @SwitchThread(Raft::class)
     fun addLog(command: Command) {
-        val promise = Promise.promise<Int>()
+        val promise = Promise.promise<Unit>()
         addLog(command, promise)
     }
 
@@ -334,7 +344,12 @@ class Raft(
     @SwitchThread(Raft::class)
     fun lineRead(key: ByteArray, promise :Promise<ByteArray?>){
         if (leadId != me) {
-            promise.fail(NotLeaderException("not leader!", peers[leadId]))
+            promise.fail(
+                NotLeaderException(
+                    "not leader!",
+                    peers[leadId]
+                )
+            )
             return
         }
         singleThreadVertx.runOnContext {
@@ -345,13 +360,18 @@ class Raft(
             CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
                 downLatch.wait()
                 if (status != RaftStatus.lead) {
-                    promise.fail("not leader")
+                    promise.fail(
+                        NotLeaderException(
+                            "not leader!",
+                            peers[leadId]
+                        )
+                    )
                     return@launch
                 }
                 if (readIndex <= lastApplied){
-                    promise.complete(stateMachine.get(key))
+                    promise.complete(stateMachine.getDirect(key))
                 }else {
-                    stateMachine.queue.offer(Triple(readIndex,key,promise::complete))
+                    stateMachine.queue.offer(readIndex to { promise.complete(stateMachine.getDirect(key)); } )
                 }
 
             }
@@ -365,7 +385,7 @@ class Raft(
             val raftSnap = RaftSnap(
                 nextIndexes.mapValues { it.value.value },
                 matchIndexes.mapValues { it.value.value },
-                peers.toMap(),
+                peers.mapValues { RaftAddress(it.value.port(), it.value.host()) },
                 currentState
             )
             fn(raftSnap)
@@ -374,5 +394,6 @@ class Raft(
 
 
     data class RaftState(val currentTerm :Int, val voteFor :ServerId?, val status: RaftStatus, val commitIndex :Int, val applied : Int)
-    data class RaftSnap(val nextIndex :Map<ServerId, Int>, val matchIndex : Map<ServerId, Int>, val peers : Map<ServerId, SocketAddress>, val raftState: RaftState)
+    data class RaftAddress(val port :Int ,val host : String)
+    data class RaftSnap(val nextIndex :Map<ServerId, Int>, val matchIndex : Map<ServerId, Int>, val peers : Map<ServerId, RaftAddress>, val raftState: RaftState)
 }

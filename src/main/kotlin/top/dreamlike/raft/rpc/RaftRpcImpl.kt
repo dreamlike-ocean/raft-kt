@@ -119,6 +119,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
             .requestHandler(router)
             .listen(raftPort)
             .flatMap {
+                rf.raftLog("raft core is listening on ${it.actualPort()}")
                 CompositeFuture.all(rf.peers.map { test(it.value) })
             }
             .map(Unit)
@@ -160,6 +161,8 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
     private fun requestVote(msg: RequestVote): RequestVoteReply {
 
         rf.lastHearBeat = System.currentTimeMillis()
+
+        rf.raftLog("receive request vote, msg :${msg}")
         if (msg.term < rf.currentTerm) {
             return RequestVoteReply(rf.currentTerm, false)
         }
@@ -167,6 +170,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         val lastLogIndex = rf.getNowLogIndex()
         rf.currentTerm = msg.term
         //若voteFor为空或者已经投给他了
+        //如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他（5.2 节，5.4 节）
         if ((rf.votedFor == null || rf.votedFor == msg.candidateId) && msg.lastLogTerm >= lastLogTerm) {
             if (msg.lastLogTerm == lastLogIndex && msg.lastLogIndex < lastLogIndex) {
                 return RequestVoteReply(rf.currentTerm, false)

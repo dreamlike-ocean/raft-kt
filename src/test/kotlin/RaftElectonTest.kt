@@ -51,6 +51,7 @@ class RaftElectonTest {
         Assert.assertEquals(1, leader.size)
         val olderLeader = leader[0]
         olderLeader.close()
+        //二次选举
         println("waiting election ${LocalDateTime.now()}")
         TimeUnit.SECONDS.sleep(1)
         println("check election ${LocalDateTime.now()}")

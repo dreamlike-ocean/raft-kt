@@ -35,7 +35,7 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     /**
      * 等待需要被apply的index , key , value回调
      */
-    val queue = PriorityQueue<Triple<Int,ByteArray,(ByteArray?) -> Unit>>(Comparator.comparingInt{it.first})
+    val queue = PriorityQueue<Pair<Int, () -> Unit>>(Comparator.comparingInt{it.first})
 
 
 
@@ -56,7 +56,7 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     }
 
 
-    fun get(key: ByteArray):ByteArray?{
+    fun getDirect(key: ByteArray):ByteArray?{
         return db[ByteArrayKey(key)]
     }
 
@@ -76,8 +76,8 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
             }
             rf.lastApplied ++
             while (!queue.isEmpty() && rf.lastApplied >= queue.firstOrNull()!!.first){
-                var (_, key, promise) = queue.poll()
-                promise(get(key))
+                val (_, callback) = queue.poll()
+                callback()
             }
         }
 
@@ -120,13 +120,13 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
 
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command, promise: Promise<Int>) {
+    fun addLog(command: Command, callback: () -> Unit) {
         vertx.runOnContext {
             val index = getNowLogIndex() + 1
             val log = Log(index, rf.currentTerm, command.toByteArray())
             logs.add(log)
             logDispatcher.appendLogs(listOf(log))
-            promise.complete(index)
+            queue.offer(index to callback)
         }
     }
 
@@ -138,7 +138,6 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         private val executor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "raft-$logFileName-log-Thread")
         }
-
         init {
             Runtime.getRuntime().addShutdownHook(thread(start = false, name = "LogDispatcher-close") { this.close() })
         }

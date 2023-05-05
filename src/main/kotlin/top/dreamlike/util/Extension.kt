@@ -1,7 +1,24 @@
 package top.dreamlike.util
 
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer
+import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer
+import com.fasterxml.jackson.module.kotlin.KotlinFeature
+import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.SingletonSupport
+import io.netty.buffer.Unpooled
+import io.vertx.core.Future
 import io.vertx.core.Vertx
+import io.vertx.core.buffer.Buffer
+import io.vertx.core.json.jackson.DatabindCodec
+import io.vertx.ext.web.Route
+import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import top.dreamlike.configurarion.singleVertxConfig
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 
 fun SingleThreadVertx() = Vertx.vertx(singleVertxConfig())
@@ -22,6 +39,37 @@ fun <E> MutableList<E>.removeAll(startIndex: Int): List<E> {
 
 fun Vertx.countEventLoop() = this.nettyEventLoopGroup().count()
 
-fun main() {
-    println(Vertx.vertx().countEventLoop())
+fun <T> Future<T>.block(): T =  toCompletionStage().toCompletableFuture().get()
+
+
+fun Route.suspendHandle(fn : suspend (RoutingContext) -> Unit) {
+    handler {
+        val dispatcher = it.vertx().dispatcher()
+        CoroutineScope(dispatcher).launch {
+            fn(it)
+        }
+    }
 }
+
+fun initJacksonMapper() {
+    val javaTimeModule = JavaTimeModule()
+    javaTimeModule.addSerializer(LocalDateTime::class.java, LocalDateTimeSerializer(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+    javaTimeModule.addDeserializer(LocalDateTime::class.java,
+        LocalDateTimeDeserializer(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+    )
+    DatabindCodec.mapper().registerModule(javaTimeModule)
+    DatabindCodec.prettyMapper().registerModule(javaTimeModule)
+
+    val kotlinModule = KotlinModule.Builder()
+        .withReflectionCacheSize(512)
+        .configure(KotlinFeature.NullToEmptyCollection, false)
+        .configure(KotlinFeature.NullToEmptyMap, false)
+        .configure(KotlinFeature.NullIsSameAsDefault, false)
+        .configure(KotlinFeature.SingletonSupport, false)
+        .configure(KotlinFeature.StrictNullChecks, false)
+        .build()
+    DatabindCodec.mapper().registerModule(kotlinModule)
+    DatabindCodec.prettyMapper().registerModule(kotlinModule)
+}
+
+fun wrap(array :ByteArray)  = Buffer.buffer(Unpooled.wrappedBuffer(array))
