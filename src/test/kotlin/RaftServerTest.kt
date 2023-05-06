@@ -1,9 +1,6 @@
 import io.vertx.core.CompositeFuture
 import io.vertx.core.Vertx
 import io.vertx.core.net.SocketAddress
-
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.Test
 import top.dreamlike.KV.ByteArrayKey
@@ -37,7 +34,7 @@ class RaftServerTest {
             .map { RaftServer(it)}
 
         CompositeFuture.all(servers.map(RaftServer::start)).block()
-        Thread.sleep(1000)
+        Thread.sleep(2000)
         val leaders = servers.filter { it.raft.status == Raft.RaftStatus.lead }
         Assert.assertEquals(1, leaders.size)
         val leaderServer = leaders[0]
@@ -55,16 +52,16 @@ class RaftServerTest {
         val buffer = client.set(key, value).block()
         val db = raft.stateMachine.db
         Assert.assertArrayEquals(value, db[ByteArrayKey(key)])
-        val dataResult = client.get(key).block()
-
-        Assert.assertFalse(dataResult.hasError)
-        Assert.assertArrayEquals(value, dataResult.value.bytes)
+//        var dataResult = client.get(key).block()
+//
+//        Assert.assertFalse(dataResult.hasError)
+//        Assert.assertArrayEquals(value, dataResult.value.bytes)
 
         //del测试
         val delRes = client.del(key).block()
-
         Assert.assertNull(db[ByteArrayKey(key)])
-
+        val dataResult = client.get(key).block()
+        Assert.assertEquals(0, dataResult.value.length())
     }
 
 

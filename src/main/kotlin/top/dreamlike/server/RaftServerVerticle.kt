@@ -12,11 +12,11 @@ import top.dreamlike.KV.Command
 import top.dreamlike.KV.DelCommand
 import top.dreamlike.KV.ReadCommand
 import top.dreamlike.KV.SetCommand
-import top.dreamlike.KV.UnknownCommand
 import top.dreamlike.configurarion.Configuration
 import top.dreamlike.exception.UnknownCommandException
 import top.dreamlike.raft.Raft
 import top.dreamlike.util.suspendHandle
+import top.dreamlike.util.wrap
 
 /**
  * requestCommand 带command在body中 成功与否看http的code 200/500
@@ -80,7 +80,9 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
                 val promise = internalContext.promise<ByteArray?>()
                 raft.lineRead(command.key, promise)
                 promise.future()
-                    .map { CommandResponse(it).encode() }
+                    .map {
+                        CommandResponse(it).encode()
+                    }
             }
             else -> {
                 val promise = internalContext.promise<Buffer>()
@@ -96,9 +98,7 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
         /**
          * 返回一个可以直接写入的buffer
          */
-        fun encode() = Buffer.buffer()
-            .appendInt(result?.size ?: 0)
-            .appendBytes(result?:EmptyArrays.EMPTY_BYTES)
+        fun encode() = wrap(result ?: EmptyArrays.EMPTY_BYTES)
     }
 
     class CommandRequest(val command: Command) {

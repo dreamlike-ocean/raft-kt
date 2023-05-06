@@ -6,7 +6,6 @@ import io.vertx.core.Vertx
 import io.vertx.core.net.SocketAddress
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.dreamlike.KV.Command
@@ -18,14 +17,17 @@ import top.dreamlike.raft.rpc.RaftRpcImpl
 import top.dreamlike.raft.rpc.entity.AppendReply
 import top.dreamlike.raft.rpc.entity.AppendRequest
 import top.dreamlike.raft.rpc.entity.RequestVote
+import top.dreamlike.raft.rpc.entity.RequestVoteReply
+import top.dreamlike.server.NotLeaderException
 import top.dreamlike.util.CountDownLatch
 import top.dreamlike.util.IntAdder
 import top.dreamlike.util.NonBlocking
-import top.dreamlike.server.NotLeaderException
 import top.dreamlike.util.SwitchThread
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.Path
 import kotlin.random.Random
@@ -153,9 +155,7 @@ class Raft(
                 val start = System.currentTimeMillis()
                 delay(timeout)
                 if (lastHearBeat < start && status != RaftStatus.lead) {
-                    async {
-                        startElection()
-                    }
+                    startElection()
                 }
             }
         }
@@ -260,28 +260,42 @@ class Raft(
         nextIndexes[serverId]?.add(-1)
     }
 
-    private suspend fun startElection() {
+    private fun startElection() {
         becomeCandidate()
         raftLog("start election")
-        val buffer = RequestVote(currentTerm, stateMachine.getNowLogIndex(), stateMachine.getLastLogTerm())
-        val downLatch = CountDownLatch(peers.size / 2)
+        val buffer =
+            RequestVote(currentTerm, stateMachine.getNowLogIndex(), stateMachine.getLastLogTerm())
+        val count = AtomicInteger(peers.size / 2)
+        val allowNextPromise = Promise.promise<Unit>()
+        val allowNext = AtomicBoolean(false)
+        val allFutures = mutableListOf<Future<RequestVoteReply>>()
         for (address in peers) {
-            rpc.requestVote(address.value, buffer)
+            val requestVoteReplyFuture = rpc.requestVote(address.value, buffer)
                 .onSuccess {
+                    val raft = this
                     if (it.isVoteGranted) {
-                        downLatch.countDown()
+                        raftLog("get vote from ${address.key}, count: ${count.get()} allowNex: ${allowNext}}")
+                        if (count.decrementAndGet() == 0 && allowNext.compareAndSet(false, true)) {
+                            allowNextPromise.complete()
+                        }
                         return@onSuccess
                     }
                     if (it.term > currentTerm) {
                         becomeFollower(it.term)
                     }
                 }
+
+            allFutures += requestVoteReplyFuture
         }
-        downLatch.wait()
-        if (status == RaftStatus.candidate) {
-            raftLog("${me} become leader")
-            becomeLead()
-        }
+        allowNextPromise.future()
+            .onComplete {
+                raftLog("allow to next, start checking status")
+                val raft = this
+                if (status == RaftStatus.candidate) {
+                    raftLog("${me} become leader")
+                    becomeLead()
+                }
+            }
     }
 
     fun getTermByIndex(index: Int) = stateMachine.getTermByIndex(index)
@@ -305,7 +319,7 @@ class Raft(
         if (!enablePrintInfo){
             return
         }
-        println("[${LocalDateTime.now()} serverId:$me term:$currentTerm index = ${stateMachine.getNowLogIndex()} status:${status}]: message:$msg")
+        println("[${LocalDateTime.now()} serverId:$me term:$currentTerm index = ${stateMachine.getNowLogIndex()} status:${status} voteFor: ${votedFor}]: message:$msg")
     }
 
     enum class RaftStatus {
@@ -356,7 +370,11 @@ class Raft(
             val readIndex = commitIndex
             val waiters = broadcastLog()
             val downLatch = CountDownLatch(waiters.size / 2)
-            waiters.forEach { f -> f.onComplete { downLatch.countDown() } }
+            waiters.forEach { f ->
+                f.onComplete {
+                    downLatch.countDown()
+                }
+            }
             CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
                 downLatch.wait()
                 if (status != RaftStatus.lead) {

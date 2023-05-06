@@ -1,9 +1,8 @@
 package top.dreamlike.clinet
 
-import io.vertx.core.Future
 import io.vertx.core.Vertx
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.net.SocketAddress
-import io.vertx.ext.web.client.HttpResponse
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.codec.BodyCodec
 import top.dreamlike.KV.DelCommand
@@ -39,10 +38,11 @@ class RaftClient(val vertx: Vertx, val address : SocketAddress) {
         .sendBuffer(ReadCommand.create(key).toBuffer())
         .map {
             val hasError = it.statusCode() == 500
+            var body = it.body() ?: Buffer.buffer()
             if(hasError) {
-                DataResult(hasError, it.body(), it.body().toString())
+                DataResult(hasError, body, body.toString())
             } else {
-                DataResult(hasError, it.body())
+                DataResult(hasError, body)
             }
         }
 

@@ -172,10 +172,11 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         //若voteFor为空或者已经投给他了
         //如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他（5.2 节，5.4 节）
         if ((rf.votedFor == null || rf.votedFor == msg.candidateId) && msg.lastLogTerm >= lastLogTerm) {
-            if (msg.lastLogTerm == lastLogIndex && msg.lastLogIndex < lastLogIndex) {
+            if (msg.lastLogTerm == lastLogTerm && msg.lastLogIndex < lastLogIndex) {
                 return RequestVoteReply(rf.currentTerm, false)
             }
             rf.votedFor = msg.candidateId
+            rf.raftLog("vote to ${msg.candidateId}")
             return RequestVoteReply(rf.currentTerm, true)
         }
         return RequestVoteReply(rf.currentTerm, false)
