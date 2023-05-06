@@ -41,6 +41,44 @@
             <url>https://repo1.maven.org/maven2/</url>
         </repository>
     </repositories>
+    <profiles>
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>0.9.21</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <buildArgs>
+                                <!--                                静态编译和修改gc在这里-->
+                                <!--                                <buildArg>&#45;&#45;static</buildArg>-->
+                                <!--                                <buildArg>&#45;&#45;libc=glibc</buildArg>-->
+                                <!--                                <buildArg>&#45;&#45;gc=G1</buildArg>-->
+                                <!--                                <buildArg>-R:MaxHeapSize=50m</buildArg>-->
+                                <buildArg>
+                                    --initialize-at-run-time=io.netty.handler.codec.compression.ZstdOptions,io.netty.handler.ssl.BouncyCastleAlpnSslUtils
+                                </buildArg>
+                            </buildArgs>
+                            <skipNativeTests>true</skipNativeTests>
+                            <!-- ... -->
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <build>
         <sourceDirectory>src/main/kotlin</sourceDirectory>
