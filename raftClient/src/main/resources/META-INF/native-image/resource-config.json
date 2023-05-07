@@ -1,0 +1,16 @@
+{
+  "resources": [
+    {
+      "pattern": ".*/.*.kotlin_module$"
+    },
+    {
+      "pattern": "META-INF/services/.*"
+    },
+    {
+      "pattern": ".*.kotlin_builtins"
+    },
+    {
+      "pattern": ".*/.*txt"
+    }
+  ]
+}

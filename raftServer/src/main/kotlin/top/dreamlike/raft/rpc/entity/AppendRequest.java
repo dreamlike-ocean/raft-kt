@@ -1,11 +1,10 @@
 package top.dreamlike.raft.rpc.entity;
 
-import io.vertx.core.buffer.Buffer;
-import top.dreamlike.raft.Log;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
+import io.vertx.core.buffer.Buffer;
+import top.dreamlike.raft.Log;
 
 public class AppendRequest {
     private final int term;

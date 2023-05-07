@@ -5,7 +5,7 @@ import top.dreamlike.KV.ByteArrayKey
 import top.dreamlike.KV.NoopCommand
 import top.dreamlike.raft.Raft
 import top.dreamlike.util.SingleThreadVertx
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 

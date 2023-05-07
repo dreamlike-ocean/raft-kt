@@ -1,9 +1,8 @@
 package top.dreamlike.raft.rpc.entity;
 
+import java.util.StringJoiner;
 import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
-
-import java.util.StringJoiner;
 
 public class RequestVote {
     private final int term;
