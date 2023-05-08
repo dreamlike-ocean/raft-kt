@@ -1,0 +1,17 @@
+{
+  "me": "raft-0",
+  "raftPort": 80,
+  "httpVertxOption": {
+    "eventLoopPoolSize": 1
+  },
+  "initPeerArgs": {
+    "raft-1": {
+      "port": 81,
+      "host": "localhost"
+    },
+    "raft-2": {
+      "port": 82,
+      "host": "localhost"
+    }
+  }
+}

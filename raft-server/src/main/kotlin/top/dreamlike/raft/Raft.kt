@@ -38,8 +38,10 @@ import kotlin.io.path.Path
 import kotlin.random.Random
 
 
-//因为我从设计上就是单线程的所以不存在不同属性的一致性问题
-
+/**
+ * Raft的核心类设计 包含论文要求的全部数据+工业实践下来的额外字段，比如说commitIndex之类的
+ * 要求与RPC运行在单线程之中 以保护多个属性修改时的原子性
+ */
 class Raft(
     private val singleThreadVertx: Vertx,
     peer: Map<ServerId, SocketAddress>,
@@ -148,6 +150,7 @@ class Raft(
                 .compose { rpcHandler.init(singleThreadVertx, raftPort) }
                 .onSuccess { startTimeoutCheck() }
                 .onSuccess(promise::complete)
+                .onFailure(promise::fail)
         }
         return promise.future()
     }

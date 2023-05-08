@@ -16,9 +16,17 @@ class RaftServer(val configuration: Configuration) {
         raft = Raft(raftVertx, configuration.initPeer, configuration.raftPort, configuration.me)
         raftServerVerticleFactory = { RaftServerVerticle(configuration, raft) }
     }
-    fun start()  = Vertx.vertx().let { serverVertx ->
+    fun start() = configuration.httpVertx.let { serverVertx ->
         raft.start()
-            .flatMap{serverVertx.deployVerticle(raftServerVerticleFactory, DeploymentOptions().setInstances(serverVertx.countEventLoop())) }
+            .flatMap {
+                serverVertx.deployVerticle(
+                    raftServerVerticleFactory,
+                    DeploymentOptions().setInstances(serverVertx.countEventLoop())
+                )
+            }
+            .onFailure {
+                raft.raftLog("start error! error message:${it.message}")
+            }
             .map { }
     }
 }
