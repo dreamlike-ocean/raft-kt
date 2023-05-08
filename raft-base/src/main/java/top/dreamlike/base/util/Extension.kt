@@ -6,6 +6,7 @@ import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer
 import com.fasterxml.jackson.module.kotlin.KotlinFeature
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import io.netty.buffer.Unpooled
+import io.netty.util.internal.EmptyArrays
 import io.vertx.core.Future
 import io.vertx.core.Vertx
 import io.vertx.core.VertxOptions
@@ -72,7 +73,11 @@ fun initJacksonMapper() {
     DatabindCodec.prettyMapper().registerModule(kotlinModule)
 }
 
-fun wrap(array: ByteArray) = Buffer.buffer(Unpooled.wrappedBuffer(array))
+fun wrap(array: ByteArray?) =
+    Buffer.buffer(Unpooled.wrappedBuffer(array ?: EmptyArrays.EMPTY_BYTES))
+
+val EMPTY_BUFFER = Buffer.buffer()
+
 fun singleVertxConfig(): VertxOptions {
     return VertxOptions()
         .setBlockedThreadCheckInterval(10000000L)

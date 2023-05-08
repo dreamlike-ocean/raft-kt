@@ -103,6 +103,7 @@ class ReadCommand(command: ByteArray) : Command() {
     companion object {
         fun create(key: ByteArray): ReadCommand {
             val command = ByteArray(key.size + 1)
+            command[0] = 3
             key.copyInto(command, 1, 0)
             return ReadCommand(command)
         }

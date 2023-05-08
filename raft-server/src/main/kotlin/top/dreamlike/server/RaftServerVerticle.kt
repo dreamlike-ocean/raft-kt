@@ -1,6 +1,5 @@
 package top.dreamlike.server
 
-import io.netty.util.internal.EmptyArrays
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.Promise
@@ -17,8 +16,8 @@ import top.dreamlike.base.KV.SetCommand
 import top.dreamlike.base.PEEK_PATH
 import top.dreamlike.base.SUCCESS
 import top.dreamlike.base.raft.RaftSnap
+import top.dreamlike.base.util.EMPTY_BUFFER
 import top.dreamlike.base.util.suspendHandle
-import top.dreamlike.base.util.wrap
 import top.dreamlike.configurarion.Configuration
 import top.dreamlike.exception.UnknownCommandException
 import top.dreamlike.raft.Raft
@@ -39,9 +38,9 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
             .suspendHandle {
                 val body = it.request().body().await()
                 try {
-                    val buffer = handleCommandRequest(body).await()
+                    val response = handleCommandRequest(body).await()
                     it.response().statusCode = SUCCESS
-                    it.end(buffer)
+                    it.end(response.result)
                 } catch (t : Throwable) {
                     it.response().statusCode = FAIL
                     it.end(t.message)
@@ -71,7 +70,7 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
         return promise.future()
     }
 
-    private fun handleCommandRequest(body: Buffer): Future<Buffer> {
+    private fun handleCommandRequest(body: Buffer): Future<CommandResponse> {
 
         val request = CommandRequest.decode(body)
         val res = when (val command = request.command) {
@@ -79,18 +78,20 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
                 val promise = internalContext.promise<Unit>()
                 raft.addLog(command, promise)
                 promise.future()
-                    .map { CommandResponse(EmptyArrays.EMPTY_BYTES).encode() }
+                    .map { CommandResponse() }
             }
+
             is ReadCommand -> {
-                val promise = internalContext.promise<ByteArray?>()
+                val promise = internalContext.promise<Buffer>()
                 raft.lineRead(command.key, promise)
                 promise.future()
                     .map {
-                        CommandResponse(it).encode()
+                        CommandResponse(it)
                     }
             }
+
             else -> {
-                val promise = internalContext.promise<Buffer>()
+                val promise = internalContext.promise<CommandResponse>()
                 promise.fail(UnknownCommandException(command::class.simpleName))
                 promise.future()
             }
@@ -99,16 +100,13 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
         return res
     }
 
-    class CommandResponse(val result: ByteArray?) {
-        /**
-         * 返回一个可以直接写入的buffer
-         */
-        fun encode() = wrap(result ?: EmptyArrays.EMPTY_BYTES)
+    @JvmInline
+    value class CommandResponse(val result: Buffer = EMPTY_BUFFER) {
     }
 
     class CommandRequest(val command: Command) {
         companion object {
-            fun decode(body: Buffer) : CommandRequest {
+            fun decode(body: Buffer): CommandRequest {
                 val rawCommand = body.bytes
                 return CommandRequest(Command.transToCommand(rawCommand))
             }

@@ -3,6 +3,7 @@ package top.dreamlike.raft
 import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.net.SocketAddress
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -11,6 +12,7 @@ import kotlinx.coroutines.launch
 import top.dreamlike.KV.KVStateMachine
 import top.dreamlike.base.KV.Command
 import top.dreamlike.base.KV.NoopCommand
+import top.dreamlike.base.KV.SimpleKVStateMachineCodec
 import top.dreamlike.base.ServerId
 import top.dreamlike.base.raft.RaftAddress
 import top.dreamlike.base.raft.RaftSnap
@@ -20,6 +22,7 @@ import top.dreamlike.base.util.CountDownLatch
 import top.dreamlike.base.util.IntAdder
 import top.dreamlike.base.util.NonBlocking
 import top.dreamlike.base.util.SwitchThread
+import top.dreamlike.base.util.wrap
 import top.dreamlike.raft.rpc.RaftRpc
 import top.dreamlike.raft.rpc.RaftRpcHandler
 import top.dreamlike.raft.rpc.RaftRpcImpl
@@ -102,7 +105,6 @@ class Raft(
         get() = metaInfo.getInt(4)
 
 
-
     var lastApplied: Int = 0
     var lastHearBeat = 0L
     var status: RaftStatus = RaftStatus.follower
@@ -156,7 +158,7 @@ class Raft(
     }
 
 
-    fun startTimeoutCheck() {
+    private fun startTimeoutCheck() {
         CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
             while (true) {
                 val timeout = (ElectronInterval + Random.nextInt(150)).toLong()
@@ -169,7 +171,6 @@ class Raft(
         }
 
     }
-
 
 
     internal fun becomeFollower(term: Int) {
@@ -228,7 +229,13 @@ class Raft(
         val nextIndexValue = nextIndex.value
         val logIndexSnap = getNowLogIndex()
         val ar = if (nextIndexValue > logIndexSnap) {
-            AppendRequest(currentTerm, logIndexSnap, stateMachine.getLastLogTerm(), commitIndex, listOf())
+            AppendRequest(
+                currentTerm,
+                logIndexSnap,
+                stateMachine.getLastLogTerm(),
+                commitIndex,
+                listOf()
+            )
         } else {
             // next rf0->1
             //从哪开始即左边界（包含）
@@ -324,7 +331,7 @@ class Raft(
 
 
     fun raftLog(msg: String) {
-        if (!enablePrintInfo){
+        if (!enablePrintInfo) {
             return
         }
         println("[${LocalDateTime.now()} serverId:$me term:$currentTerm index = ${stateMachine.getNowLogIndex()} status:${status} voteFor: ${votedFor}]: message:$msg")
@@ -336,7 +343,7 @@ class Raft(
      */
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun addLog(command: Command, promise :Promise<Unit>){
+    fun addLog(command: Command, promise: Promise<Unit>) {
         if (leadId != me) {
             promise.fail(
                 NotLeaderException(
@@ -359,7 +366,7 @@ class Raft(
 
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun lineRead(key: ByteArray, promise :Promise<ByteArray?>){
+    fun lineRead(key: ByteArray, promise: Promise<Buffer>) {
         if (leadId != me) {
             promise.fail(
                 NotLeaderException(
@@ -389,18 +396,24 @@ class Raft(
                     )
                     return@launch
                 }
-                if (readIndex <= lastApplied){
-                    promise.complete(stateMachine.getDirect(key))
-                }else {
-                    stateMachine.queue.offer(readIndex to { promise.complete(stateMachine.getDirect(key)); } )
+                val readAction = if (key.isEmpty()) {
+                    { promise.complete(SimpleKVStateMachineCodec.encode(stateMachine.db)) }
+                } else {
+                    { promise.complete(wrap(stateMachine.getDirect(key))) }
+                }
+                if (readIndex <= lastApplied) {
+                    readAction()
+                } else {
+                    stateMachine.queue.offer(readIndex to readAction)
                 }
 
             }
         }
         return
     }
+
     @SwitchThread(Raft::class)
-    fun raftSnap(fn : (RaftSnap) -> Unit) {
+    fun raftSnap(fn: (RaftSnap) -> Unit) {
         singleThreadVertx.runOnContext {
             val currentState = RaftState(currentTerm, votedFor, status, commitIndex, lastApplied)
             val raftSnap = RaftSnap(

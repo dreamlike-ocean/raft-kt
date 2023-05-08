@@ -1,6 +1,9 @@
 package top.dreamlike.base.KV
 
 class ByteArrayKey(val byteArray: ByteArray) {
+
+    fun size() = byteArray.size
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
