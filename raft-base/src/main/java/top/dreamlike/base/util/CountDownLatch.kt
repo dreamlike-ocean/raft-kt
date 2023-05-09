@@ -1,22 +1,20 @@
 package top.dreamlike.base.util
 
+import io.vertx.core.Promise
+import io.vertx.kotlin.coroutines.await
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 class CountDownLatch(count: Int) {
-    private var waiter: Continuation<Unit>? = null
+    private var waiter: Promise<Unit> = Promise.promise()
     private val count = AtomicInteger(count)
-    suspend fun wait() = suspendCoroutine<Unit> {
-        if (count.get() <= 0) it.resume(Unit)
-        waiter = it
-    }
+    suspend fun wait() = waiter.future().await()
+
+    fun future() = waiter.future()
 
     fun countDown() {
         val decrementAndGet = count.decrementAndGet()
         if (decrementAndGet == 0) {
-            waiter?.resume(Unit)
+            waiter.complete()
         }
     }
 

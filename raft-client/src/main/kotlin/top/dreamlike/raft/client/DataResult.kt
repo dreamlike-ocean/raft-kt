@@ -1,5 +1,3 @@
 package top.dreamlike.raft.client
 
-import io.vertx.core.buffer.Buffer
-
-data class DataResult(val hasError :Boolean, val value : Buffer, val errorMessage:String = "")
+data class DataResult<T>(val hasError: Boolean, val value: T, val errorMessage: String = "")

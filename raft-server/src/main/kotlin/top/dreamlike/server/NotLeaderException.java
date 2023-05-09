@@ -2,12 +2,13 @@ package top.dreamlike.server;
 
 
 import io.vertx.core.impl.NoStackTraceThrowable;
-import io.vertx.core.net.SocketAddress;
+import top.dreamlike.base.raft.RaftAddress;
 
 public class NotLeaderException extends NoStackTraceThrowable {
 
-    public final SocketAddress leaderInfo;
-    public NotLeaderException(String message, SocketAddress leaderInfo) {
+    public final RaftAddress leaderInfo;
+
+    public NotLeaderException(String message, RaftAddress leaderInfo) {
         super(message);
         this.leaderInfo = leaderInfo;
     }

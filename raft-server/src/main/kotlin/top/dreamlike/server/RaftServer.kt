@@ -17,7 +17,7 @@ class RaftServer(val configuration: Configuration) {
         raftServerVerticleFactory = { RaftServerVerticle(configuration, raft) }
     }
     fun start() = configuration.httpVertx.let { serverVertx ->
-        raft.start()
+        raft.startRaft()
             .flatMap {
                 serverVertx.deployVerticle(
                     raftServerVerticleFactory,

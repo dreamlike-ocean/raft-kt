@@ -1,5 +1,6 @@
 package top.dreamlike.raft.client
 
+import io.netty.util.internal.EmptyArrays
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.net.SocketAddress
@@ -9,9 +10,9 @@ import top.dreamlike.base.COMMAND_PATH
 import top.dreamlike.base.KV.DelCommand
 import top.dreamlike.base.KV.ReadCommand
 import top.dreamlike.base.KV.SetCommand
+import top.dreamlike.base.KV.SimpleKVStateMachineCodec
 import top.dreamlike.base.PEEK_PATH
 import top.dreamlike.base.raft.RaftSnap
-
 
 class RaftClient(val vertx: Vertx, val address: SocketAddress) {
     val webClient = WebClient.create(vertx)
@@ -41,7 +42,21 @@ class RaftClient(val vertx: Vertx, val address: SocketAddress) {
         .map {
             val hasError = it.statusCode() == 500
             var body = it.body() ?: Buffer.buffer()
-            if(hasError) {
+            if (hasError) {
+                DataResult(hasError, body, body.toString())
+            } else {
+                DataResult(hasError, body)
+            }
+        }
+
+    fun getAll() = webClient
+        .post(address.port(), address.host(), COMMAND_PATH)
+        .`as`(BodyCodec.buffer())
+        .sendBuffer(ReadCommand.create(EmptyArrays.EMPTY_BYTES).toBuffer())
+        .map {
+            val hasError = it.statusCode() == 500
+            var body = SimpleKVStateMachineCodec.decode(it.body() ?: Buffer.buffer())
+            if (hasError) {
                 DataResult(hasError, body, body.toString())
             } else {
                 DataResult(hasError, body)

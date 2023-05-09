@@ -34,7 +34,9 @@ class LogCheck {
 
         val rafts = listOf(rf0, rf1, rf2)
         val downLatch = CountDownLatch(3)
-        rafts.forEach { rf -> rf.start().onSuccess { println("${rf.me} start"); downLatch.countDown() } }
+        rafts.forEach { rf ->
+            rf.startRaft().onSuccess { println("${rf.me} start"); downLatch.countDown() }
+        }
         downLatch.await()
         //——————————————第一次选举————————————————
         TimeUnit.SECONDS.sleep(1)

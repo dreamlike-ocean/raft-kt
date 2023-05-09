@@ -76,6 +76,9 @@ fun initJacksonMapper() {
 fun wrap(array: ByteArray?) =
     Buffer.buffer(Unpooled.wrappedBuffer(array ?: EmptyArrays.EMPTY_BYTES))
 
+fun wrapSlice(array: ByteArray, startIndex: Int = 0) =
+    Buffer.buffer(Unpooled.wrappedBuffer(array).slice(startIndex, array.size - startIndex))
+
 val EMPTY_BUFFER = Buffer.buffer()
 
 fun singleVertxConfig(): VertxOptions {

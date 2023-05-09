@@ -7,5 +7,6 @@ data class RaftState(
     val voteFor: ServerId?,
     val status: RaftStatus,
     val commitIndex: Int,
-    val applied: Int
+    val applied: Int,
+    val leader: ServerId?
 )

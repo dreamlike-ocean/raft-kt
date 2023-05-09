@@ -13,7 +13,9 @@ interface RaftRpc {
 
     fun requestVote(remote: SocketAddress, requestVote: RequestVote): Future<RequestVoteReply>
 
-    suspend fun appendRequestSuspend(remote: SocketAddress, appendRequest: AppendRequest): AppendReply
+    suspend fun appendRequestSuspend(remote: SocketAddress, appendRequest: AppendRequest) =
+        appendRequest(remote, appendRequest).await()
+
     fun appendRequest(remote: SocketAddress, appendRequest: AppendRequest): Future<AppendReply>
 
     fun test(remote: SocketAddress): Future<Unit>

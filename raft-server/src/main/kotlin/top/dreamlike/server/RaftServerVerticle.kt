@@ -13,6 +13,7 @@ import top.dreamlike.base.KV.Command
 import top.dreamlike.base.KV.DelCommand
 import top.dreamlike.base.KV.ReadCommand
 import top.dreamlike.base.KV.SetCommand
+import top.dreamlike.base.NOT_LEAD
 import top.dreamlike.base.PEEK_PATH
 import top.dreamlike.base.SUCCESS
 import top.dreamlike.base.raft.RaftSnap
@@ -41,7 +42,10 @@ class RaftServerVerticle(val configuration: Configuration,val raft: Raft) : Abst
                     val response = handleCommandRequest(body).await()
                     it.response().statusCode = SUCCESS
                     it.end(response.result)
-                } catch (t : Throwable) {
+                } catch (leader: NotLeaderException) {
+                    it.response().statusCode = NOT_LEAD
+                    it.json(leader.leaderInfo)
+                } catch (t: Throwable) {
                     it.response().statusCode = FAIL
                     it.end(t.message)
                 }

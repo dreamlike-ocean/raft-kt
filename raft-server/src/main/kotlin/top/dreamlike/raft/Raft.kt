@@ -1,5 +1,6 @@
 package top.dreamlike.raft
 
+import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import top.dreamlike.KV.KVStateMachine
 import top.dreamlike.base.KV.Command
 import top.dreamlike.base.KV.NoopCommand
+import top.dreamlike.base.KV.ServerConfigChangeCommand
 import top.dreamlike.base.KV.SimpleKVStateMachineCodec
 import top.dreamlike.base.ServerId
 import top.dreamlike.base.raft.RaftAddress
@@ -26,6 +28,7 @@ import top.dreamlike.base.util.wrap
 import top.dreamlike.raft.rpc.RaftRpc
 import top.dreamlike.raft.rpc.RaftRpcHandler
 import top.dreamlike.raft.rpc.RaftRpcImpl
+import top.dreamlike.raft.rpc.entity.AddServerRequest
 import top.dreamlike.raft.rpc.entity.AppendReply
 import top.dreamlike.raft.rpc.entity.AppendRequest
 import top.dreamlike.raft.rpc.entity.RequestVote
@@ -50,7 +53,7 @@ class Raft(
     peer: Map<ServerId, SocketAddress>,
     private val raftPort: Int,
     val me: ServerId
-) {
+) : AbstractVerticle() {
 
     companion object {
         const val ElectronInterval = 300
@@ -143,23 +146,25 @@ class Raft(
      */
     @NonBlocking
     @SwitchThread(Raft::class)
-    fun start(): Future<Unit> {
+    fun startRaft(): Future<Unit> {
+        return singleThreadVertx.deployVerticle(this)
+            .map {}
+    }
+
+    override fun start(startPromise: Promise<Void>) {
         //预先触发缺页中断
         raftLog("recover{voteFor ${votedFor}}")
-        val promise = Promise.promise<Unit>()
-        singleThreadVertx.runOnContext {
+        context.runOnContext {
             stateMachine.init()
                 .compose { rpcHandler.init(singleThreadVertx, raftPort) }
                 .onSuccess { startTimeoutCheck() }
-                .onSuccess(promise::complete)
-                .onFailure(promise::fail)
+                .onSuccess { startPromise.complete() }
+                .onFailure(startPromise::fail)
         }
-        return promise.future()
     }
 
-
     private fun startTimeoutCheck() {
-        CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
+        CoroutineScope(context.dispatcher() as CoroutineContext).launch {
             while (true) {
                 val timeout = (ElectronInterval + Random.nextInt(150)).toLong()
                 val start = System.currentTimeMillis()
@@ -201,7 +206,7 @@ class Raft(
         //添加一个空日志 论文要求的
         addLog(NoopCommand())
         //不断心跳
-        CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
+        CoroutineScope(context.dispatcher() as CoroutineContext).launch {
             while (status == RaftStatus.lead) {
                 broadcastLog()
                 delay(heartBeat)
@@ -348,7 +353,7 @@ class Raft(
             promise.fail(
                 NotLeaderException(
                     "not leader!",
-                    peers[leadId]
+                    RaftAddress(peers[leadId])
                 )
             )
             return
@@ -363,6 +368,23 @@ class Raft(
         addLog(command, promise)
     }
 
+    fun addServer(request: AddServerRequest, promise: Promise<Unit>) {
+        val apply = Promise.promise<Unit>()
+        if (leadId != me) {
+            promise.fail(
+                NotLeaderException(
+                    "not leader!",
+                    RaftAddress(peers[leadId])
+                )
+            )
+            return
+        }
+        val serverConfigChangeCommand = ServerConfigChangeCommand.create(request)
+        context.runOnContext {
+            addLog(serverConfigChangeCommand, promise)
+        }
+    }
+
 
     @NonBlocking
     @SwitchThread(Raft::class)
@@ -371,12 +393,12 @@ class Raft(
             promise.fail(
                 NotLeaderException(
                     "not leader!",
-                    peers[leadId]
+                    RaftAddress(peers[leadId])
                 )
             )
             return
         }
-        singleThreadVertx.runOnContext {
+        context.runOnContext {
             val readIndex = commitIndex
             val waiters = broadcastLog()
             val downLatch = CountDownLatch(waiters.size / 2)
@@ -385,13 +407,13 @@ class Raft(
                     downLatch.countDown()
                 }
             }
-            CoroutineScope(singleThreadVertx.dispatcher() as CoroutineContext).launch {
+            CoroutineScope(context.dispatcher() as CoroutineContext).launch {
                 downLatch.wait()
                 if (status != RaftStatus.lead) {
                     promise.fail(
                         NotLeaderException(
                             "not leader!",
-                            peers[leadId]
+                            RaftAddress(peers[leadId])
                         )
                     )
                     return@launch
@@ -414,8 +436,9 @@ class Raft(
 
     @SwitchThread(Raft::class)
     fun raftSnap(fn: (RaftSnap) -> Unit) {
-        singleThreadVertx.runOnContext {
-            val currentState = RaftState(currentTerm, votedFor, status, commitIndex, lastApplied)
+        context.runOnContext {
+            val currentState =
+                RaftState(currentTerm, votedFor, status, commitIndex, lastApplied, leadId)
             val raftSnap = RaftSnap(
                 nextIndexes.mapValues { it.value.value },
                 matchIndexes.mapValues { it.value.value },

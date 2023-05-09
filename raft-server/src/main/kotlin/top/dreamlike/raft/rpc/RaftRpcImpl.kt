@@ -32,9 +32,13 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         const val requestVoteReply_path = "/requestVote"
         const val test_path = "/test"
         const val server_id_header = "raft_server_id"
+        const val add_server_path = "/addServer"
     }
 
-    override fun requestVote(remote: SocketAddress, requestVote: RequestVote): Future<RequestVoteReply> {
+    override fun requestVote(
+        remote: SocketAddress,
+        requestVote: RequestVote
+    ): Future<RequestVoteReply> {
         return try {
             webClient.post(remote.port(), remote.host(), requestVoteReply_path)
                 .putHeader(server_id_header, rf.me)
@@ -60,7 +64,10 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         }
     }
 
-    override fun appendRequest(remote: SocketAddress, appendRequest: AppendRequest): Future<AppendReply> {
+    override fun appendRequest(
+        remote: SocketAddress,
+        appendRequest: AppendRequest
+    ): Future<AppendReply> {
         return try {
             webClient.post(remote.port(), remote.host(), appendRequest_path)
                 .putHeader(server_id_header, rf.me)
@@ -74,16 +81,14 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         }
     }
 
-    override suspend fun requestVoteSuspend(remote: SocketAddress, requestVote: RequestVote): RequestVoteReply {
+    override suspend fun requestVoteSuspend(
+        remote: SocketAddress,
+        requestVote: RequestVote
+    ): RequestVoteReply {
         return requestVote(remote, requestVote)
             .await()
     }
 
-
-    override suspend fun appendRequestSuspend(remote: SocketAddress, appendRequest: AppendRequest): AppendReply {
-        return appendRequest(remote, appendRequest)
-            .await()
-    }
 
     override fun init(vertx: Vertx, raftPort: Int): Future<Unit> {
         this.port = raftPort

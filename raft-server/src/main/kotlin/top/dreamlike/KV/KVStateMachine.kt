@@ -8,6 +8,7 @@ import top.dreamlike.base.KV.ByteArrayKey
 import top.dreamlike.base.KV.Command
 import top.dreamlike.base.KV.DelCommand
 import top.dreamlike.base.KV.NoopCommand
+import top.dreamlike.base.KV.ServerConfigChangeCommand
 import top.dreamlike.base.KV.SetCommand
 import top.dreamlike.base.util.NonBlocking
 import top.dreamlike.base.util.SwitchThread
@@ -45,7 +46,7 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
 
 
     /**
-     * 在 [top.dreamlike.raft.Raft.start] 中调用
+     * 在 [top.dreamlike.raft.Raft.startRaft] 中调用
      * 所以其中跑在EventLoop中
      */
     fun init(): Future<Unit> {
@@ -131,6 +132,11 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
             logs.add(log)
             logDispatcher.appendLogs(listOf(log))
             queue.offer(index to callback)
+            //这里特殊直接就apply
+            if (command is ServerConfigChangeCommand) {
+                rf.peers[command.serverInfo.serverId] =
+                    command.serverInfo.raftAddress.SocketAddress()
+            }
         }
     }
 
