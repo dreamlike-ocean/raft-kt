@@ -2,7 +2,10 @@ package top.dreamlike.raft.rpc
 
 import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.Vertx
+import io.vertx.core.json.Json
+import io.vertx.core.json.JsonObject
 import io.vertx.core.net.SocketAddress
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.client.WebClient
@@ -10,12 +13,20 @@ import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.ext.web.codec.BodyCodec
 import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.coroutines.await
+import top.dreamlike.base.ADD_SERVER_PATH
+import top.dreamlike.base.ServerId
+import top.dreamlike.base.raft.RaftAddress
+import top.dreamlike.base.raft.RaftServerInfo
 import top.dreamlike.base.raft.RaftStatus
+import top.dreamlike.base.util.suspendHandle
 import top.dreamlike.raft.Raft
+import top.dreamlike.raft.rpc.entity.AddServerRequest
+import top.dreamlike.raft.rpc.entity.AdderServerResponse
 import top.dreamlike.raft.rpc.entity.AppendReply
 import top.dreamlike.raft.rpc.entity.AppendRequest
 import top.dreamlike.raft.rpc.entity.RequestVote
 import top.dreamlike.raft.rpc.entity.RequestVoteReply
+import top.dreamlike.server.NotLeaderException
 
 class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, RaftRpcHandler {
 
@@ -32,7 +43,6 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         const val requestVoteReply_path = "/requestVote"
         const val test_path = "/test"
         const val server_id_header = "raft_server_id"
-        const val add_server_path = "/addServer"
     }
 
     override fun requestVote(
@@ -58,7 +68,13 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
                 .putHeader(server_id_header, rf.me)
                 .`as`(BodyCodec.buffer())
                 .send()
-                .map(Unit)
+                .flatMap {
+                    if (it.statusCode() != 200) {
+                        Future.failedFuture("PING fail")
+                    } else {
+                        Future.succeededFuture()
+                    }
+                }
         } catch (e: Exception) {
             Future.failedFuture(e)
         }
@@ -75,6 +91,23 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
                 .sendBuffer(appendRequest.toBuffer())
                 .map {
                     AppendReply(it.body())
+                }
+        } catch (e: Exception) {
+            Future.failedFuture(e)
+        }
+    }
+
+    override fun addServer(
+        remote: SocketAddress,
+        request: AddServerRequest
+    ): Future<AdderServerResponse> {
+        return try {
+            webClient.post(remote.port(), remote.host(), ADD_SERVER_PATH)
+                .putHeader(server_id_header, rf.me)
+                .`as`(BodyCodec.json(AdderServerResponse::class.java))
+                .sendBuffer(Json.encodeToBuffer(request))
+                .map {
+                    it.body()
                 }
         } catch (e: Exception) {
             Future.failedFuture(e)
@@ -117,7 +150,25 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
 
         router.post(test_path)
             .handler {
+                it.response().statusCode = 200
                 it.end()
+            }
+
+        router.post(ADD_SERVER_PATH)
+            .suspendHandle {
+                val body = JsonObject(it.request().body().await())
+                    .mapTo(RaftServerInfo::class.java)
+                body.raftAddress = RaftAddress(it.request().remoteAddress())
+                val apply = Promise.promise<Map<ServerId, RaftAddress>>()
+                rf.addServer(body, apply)
+                val res = try {
+                    val peerInfo = apply.future().await()
+                    AdderServerResponse(true, null, rf.me, peerInfo)
+                } catch (t: NotLeaderException) {
+                    val leaderInfo = t.leaderInfo
+                    AdderServerResponse(false, leaderInfo, rf.leadId, mapOf())
+                }
+                it.json(res)
             }
 
 

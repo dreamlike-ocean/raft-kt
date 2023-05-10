@@ -8,13 +8,13 @@ import top.dreamlike.base.ServerId
 import top.dreamlike.base.raft.RaftAddress
 import top.dreamlike.base.util.singleVertxConfig
 
-
 class Configuration(
     val me: ServerId = RandomServerId(),
     val raftPort: Int = 8080,
     val httpPort: Int = 80,
     httpVertxOption: Map<String, Any> = mutableMapOf(),
-    initPeerArgs: Map<ServerId, RaftAddress> = mapOf()
+    initPeerArgs: Map<ServerId, RaftAddress> = mapOf(),
+    connectNode: ServerId? = null
 ) {
     val initPeer = initPeerArgs.mapValues { it.value.SocketAddress() }
     val raftVertxOptions = singleVertxConfig()

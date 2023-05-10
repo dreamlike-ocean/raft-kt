@@ -1,6 +1,5 @@
 import io.vertx.core.CompositeFuture
 import io.vertx.core.Vertx
-import io.vertx.core.json.JsonObject
 import io.vertx.core.net.SocketAddress
 import org.junit.Assert
 import org.junit.Test
@@ -33,7 +32,7 @@ class RaftServerTest {
                     nodeId,
                     nodes[nodeId]!!.port,
                     httpPort + i,
-                    JsonObject(),
+                    mapOf(),
                     HashMap(nodes).apply { remove(nodeId) })
             )
         }
@@ -71,5 +70,32 @@ class RaftServerTest {
         Assert.assertEquals(0, dataResult.value.length())
     }
 
+    @Test
+    fun testAddServer() {
+        initJacksonMapper()
+        val httpPort = 8080
+        val configurations = mutableListOf<Configuration>()
+        val vertx = Vertx.vertx()
+        val nodes = mapOf(
+            "raft-0" to RaftAddress(80, "localhost"),
+            "raft-1" to RaftAddress(81, "localhost"),
+            "raft-2" to RaftAddress(82, "localhost"),
+        )
+        for (i in (0..2)) {
+            val nodeId = "raft-$i"
+            configurations.add(
+                Configuration(
+                    nodeId,
+                    nodes[nodeId]!!.port,
+                    httpPort + i,
+                    mapOf(),
+                    HashMap(nodes).apply { remove(nodeId) })
+            )
+        }
+        val servers = configurations
+            .map { RaftServer(it) }
+
+        CompositeFuture.all(servers.map(RaftServer::start)).block()
+    }
 
 }

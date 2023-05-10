@@ -25,7 +25,7 @@
         <kotlin.compiler.jvmTarget>17</kotlin.compiler.jvmTarget>
         <netty.version>4.1.77.Final</netty.version>
         <kotlin.version>1.8.21</kotlin.version>
-        <vertx.version>4.3.1</vertx.version>
+        <vertx.version>4.4.0</vertx.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <base.version>1.0.0</base.version>

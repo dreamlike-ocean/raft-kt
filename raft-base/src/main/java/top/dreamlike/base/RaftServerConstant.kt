@@ -10,5 +10,6 @@ const val FAIL = 500
 const val NOT_LEAD = 520
 const val COMMAND_PATH = "/command"
 const val PEEK_PATH = "/peek"
+const val ADD_SERVER_PATH = "/addServer"
 
 fun RandomServerId(): ServerId = UUID.randomUUID().toString()

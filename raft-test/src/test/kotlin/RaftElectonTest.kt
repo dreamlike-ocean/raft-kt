@@ -1,6 +1,7 @@
 import io.vertx.core.net.SocketAddress
 import org.junit.Assert
 import org.junit.Test
+import top.dreamlike.base.raft.RaftStatus
 import top.dreamlike.base.util.SingleThreadVertx
 import top.dreamlike.raft.Raft
 import java.time.LocalDateTime
@@ -44,7 +45,7 @@ class RaftElectonTest {
         println("check election ${LocalDateTime.now()}")
         var leader = mutableListOf<Raft>()
         rafts.forEach {
-            if (it.status == Raft.RaftStatus.lead) {
+            if (it.status == RaftStatus.lead) {
                 leader.add(it)
             } else {
 //                Assert.assertEquals(it.getNowLogIndex(), 1)
@@ -59,7 +60,7 @@ class RaftElectonTest {
         println("check election ${LocalDateTime.now()}")
         leader = mutableListOf<Raft>()
         rafts.filter { it != olderLeader }.forEach {
-            if (it.status == Raft.RaftStatus.lead) {
+            if (it.status == RaftStatus.lead) {
                 leader.add(it)
             } else {
 //                Assert.assertEquals(it.getNowLogIndex(), 2)

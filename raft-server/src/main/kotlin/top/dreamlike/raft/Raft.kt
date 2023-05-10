@@ -6,6 +6,7 @@ import io.vertx.core.Promise
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.net.SocketAddress
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -42,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.Path
 import kotlin.random.Random
+import kotlin.system.exitProcess
 
 
 /**
@@ -52,7 +54,8 @@ class Raft(
     private val singleThreadVertx: Vertx,
     peer: Map<ServerId, SocketAddress>,
     private val raftPort: Int,
-    val me: ServerId
+    val me: ServerId,
+    val addModeConfig: RaftAddress? = null
 ) : AbstractVerticle() {
 
     companion object {
@@ -132,8 +135,9 @@ class Raft(
         val rpcImpl = RaftRpcImpl(singleThreadVertx, this)
         rpc = rpcImpl
         rpcHandler = rpcImpl
-
     }
+
+    fun pingRaftNode(address: RaftAddress) = rpc.test(address.SocketAddress())
 
 
     /**
@@ -153,8 +157,35 @@ class Raft(
 
     override fun start(startPromise: Promise<Void>) {
         //预先触发缺页中断
-        raftLog("recover{voteFor ${votedFor}}")
-        context.runOnContext {
+        raftLog("node recover")
+        CoroutineScope(context.dispatcher()).launch {
+            try {
+                if (addModeConfig != null) {
+                    raftLog("start in addServerMode")
+                    rpc.test(addModeConfig.SocketAddress()).await()
+                    var targetAddress = addModeConfig.SocketAddress()
+                    //fast path先试一下
+                    var response = rpc.addServer(
+                        targetAddress,
+                        AddServerRequest(RaftAddress(80, "localhost"), me)
+                    ).await()
+                    while (!response.ok) {
+                        targetAddress = response.leader!!.SocketAddress()
+                        response = rpc.addServer(
+                            targetAddress,
+                            AddServerRequest(RaftAddress(80, "localhost"), me)
+                        ).await()
+                    }
+                    leadId = response.leaderId
+                    peers.putAll(response.peer.mapValues { it.value.SocketAddress() })
+                    peers.remove(me)
+                    peers[response.leaderId] = targetAddress
+                }
+            } catch (t: Throwable) {
+                raftLog("addServerMode start error")
+                startPromise.fail(t)
+                exitProcess(1)
+            }
             stateMachine.init()
                 .compose { rpcHandler.init(singleThreadVertx, raftPort) }
                 .onSuccess { startTimeoutCheck() }
@@ -219,8 +250,7 @@ class Raft(
         val list = mutableListOf<Future<AppendReply>>()
         for (peer in peers) {
             val peerServerId = peer.key
-            val nextIndex = nextIndexes[peerServerId]
-            if (nextIndex == null) continue
+            val nextIndex = nextIndexes[peerServerId] ?: continue
             list.add(appendLogsToPeer(nextIndex, peer, peerServerId))
         }
         return list
@@ -287,6 +317,9 @@ class Raft(
             RequestVote(currentTerm, stateMachine.getNowLogIndex(), stateMachine.getLastLogTerm())
         val count = AtomicInteger(peers.size / 2)
         val allowNextPromise = Promise.promise<Unit>()
+        if (count.get() == 0) {
+            allowNextPromise.complete()
+        }
         val allowNext = AtomicBoolean(false)
         val allFutures = mutableListOf<Future<RequestVoteReply>>()
         for (address in peers) {
@@ -368,8 +401,7 @@ class Raft(
         addLog(command, promise)
     }
 
-    fun addServer(request: AddServerRequest, promise: Promise<Unit>) {
-        val apply = Promise.promise<Unit>()
+    fun addServer(request: AddServerRequest, promise: Promise<Map<ServerId, RaftAddress>>) {
         if (leadId != me) {
             promise.fail(
                 NotLeaderException(
@@ -379,9 +411,14 @@ class Raft(
             )
             return
         }
+        val applyConfigPromise = Promise.promise<Unit>()
+        applyConfigPromise.future()
+            .onComplete {
+                promise.complete(peers.mapValues { RaftAddress(it.value) })
+            }
         val serverConfigChangeCommand = ServerConfigChangeCommand.create(request)
         context.runOnContext {
-            addLog(serverConfigChangeCommand, promise)
+            addLog(serverConfigChangeCommand, applyConfigPromise)
         }
     }
 
@@ -426,7 +463,7 @@ class Raft(
                 if (readIndex <= lastApplied) {
                     readAction()
                 } else {
-                    stateMachine.queue.offer(readIndex to readAction)
+                    stateMachine.applyEventWaitQueue.offer(readIndex to readAction)
                 }
 
             }

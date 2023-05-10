@@ -27,6 +27,9 @@ import kotlin.concurrent.thread
  * 而其内部的file则是另外一个线程，而这个线程[logDispatcher]的任务顺序由raft驱动线程控制
  * 所以raft和statemachine的log视图最终和文件一致
  */
+private typealias LazyTask = () -> Unit
+private typealias AfterComplete = () -> Unit
+
 class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     //这里的logBase指的是已经被应用到状态机上面的最小logIndex
     //此index之后的log是无空洞的连续log
@@ -34,13 +37,15 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     private val logBase = 0
     private val termBase = 0
     private val logDispatcher = LogDispatcher(rf.me)
+    private val serverChangeWaitQueue = ArrayDeque<LazyTask>()
 
     val db = mutableMapOf<ByteArrayKey, ByteArray>()
 
     /**
      * 等待需要被apply的index , key , value回调
      */
-    val queue = PriorityQueue<Pair<Int, () -> Unit>>(Comparator.comparingInt{it.first})
+    val applyEventWaitQueue =
+        PriorityQueue<Pair<Int, () -> Unit>>(Comparator.comparingInt { it.first })
 
 
 
@@ -77,11 +82,13 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
                 is NoopCommand -> {}
                 is SetCommand -> db[ByteArrayKey(command.key)] = command.value
                 is DelCommand -> db.remove(ByteArrayKey(command.key))
+                //不做任何事情以防止被continuezzhih
+                is ServerConfigChangeCommand -> {}
                 else -> continue
             }
-            rf.lastApplied ++
-            while (!queue.isEmpty() && rf.lastApplied >= queue.firstOrNull()!!.first){
-                val (_, callback) = queue.poll()
+            rf.lastApplied++
+            while (!applyEventWaitQueue.isEmpty() && rf.lastApplied >= applyEventWaitQueue.firstOrNull()!!.first) {
+                val (_, callback) = applyEventWaitQueue.poll()
                 callback()
             }
         }
@@ -131,25 +138,46 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
             val log = Log(index, rf.currentTerm, command.toByteArray())
             logs.add(log)
             logDispatcher.appendLogs(listOf(log))
-            queue.offer(index to callback)
             //这里特殊直接就apply
-            if (command is ServerConfigChangeCommand) {
-                rf.peers[command.serverInfo.serverId] =
-                    command.serverInfo.raftAddress.SocketAddress()
+            if (command !is ServerConfigChangeCommand) {
+                applyEventWaitQueue.offer(index to callback)
+            } else {
+                handleServerConfigChangeCommand(command, callback, index)
             }
         }
     }
 
-
-
+    private fun handleServerConfigChangeCommand(
+        command: ServerConfigChangeCommand,
+        callback: () -> Unit,
+        currentIndex: Int
+    ) {
+        serverChangeWaitQueue.add {
+            rf.peers[command.serverInfo.serverId] = command.serverInfo.raftAddress.SocketAddress()
+            applyEventWaitQueue.offer(currentIndex to {
+                serverChangeWaitQueue.removeFirst()
+                serverChangeWaitQueue.firstOrNull()?.invoke()
+            })
+            callback()
+        }
+        if (serverChangeWaitQueue.size == 1) {
+            val task = serverChangeWaitQueue.first()
+            task()
+        }
+    }
 
 
     inner class LogDispatcher(private val logFileName: String) {
         private val executor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "raft-$logFileName-log-Thread")
         }
+
         init {
-            Runtime.getRuntime().addShutdownHook(thread(start = false, name = "LogDispatcher-close") { this.close() })
+            Runtime.getRuntime().addShutdownHook(
+                thread(
+                    start = false,
+                    name = "LogDispatcher-close"
+                ) { this.close() })
         }
 
         val logFile: FileChannel =

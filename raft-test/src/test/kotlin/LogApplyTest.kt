@@ -3,6 +3,7 @@ import org.junit.Assert
 import org.junit.Test
 import top.dreamlike.base.KV.ByteArrayKey
 import top.dreamlike.base.KV.NoopCommand
+import top.dreamlike.base.raft.RaftStatus
 import top.dreamlike.base.util.SingleThreadVertx
 import top.dreamlike.raft.Raft
 import java.util.UUID
@@ -57,7 +58,7 @@ class LogApplyTest {
 
         var leader = mutableListOf<Raft>()
         rafts.forEach {
-            if (it.status == Raft.RaftStatus.lead) {
+            if (it.status == RaftStatus.lead) {
                 leader.add(it)
             } else {
                 Assert.assertEquals(it.getNowLogIndex(), 1)
@@ -83,7 +84,7 @@ class LogApplyTest {
         //等待第二次选举
         leader = mutableListOf<Raft>()
         rafts.filter { it != oldLeader }.forEach {
-            if (it.status == Raft.RaftStatus.lead) {
+            if (it.status == RaftStatus.lead) {
                 leader.add(it)
             } else {
                 //2个选举空日志和之前add的
@@ -97,7 +98,7 @@ class LogApplyTest {
         leader[0].addLog(SetCommandCreate(key, value))
         TimeUnit.SECONDS.sleep(1)
         rafts.filter { it != oldLeader }.forEach {
-            if (it.status == Raft.RaftStatus.lead) {
+            if (it.status == RaftStatus.lead) {
                 leader.add(it)
             } else {
                 Assert.assertEquals(it.getNowLogIndex(), 4)
