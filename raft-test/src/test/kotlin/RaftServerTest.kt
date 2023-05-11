@@ -73,29 +73,63 @@ class RaftServerTest {
     @Test
     fun testAddServer() {
         initJacksonMapper()
-        val httpPort = 8080
-        val configurations = mutableListOf<Configuration>()
-        val vertx = Vertx.vertx()
-        val nodes = mapOf(
-            "raft-0" to RaftAddress(80, "localhost"),
-            "raft-1" to RaftAddress(81, "localhost"),
-            "raft-2" to RaftAddress(82, "localhost"),
+        val leaderNodeConfiguration = Configuration(
+            "raft-0",
+            80,
+            8080,
+            mapOf(),
+            mapOf()
         )
-        for (i in (0..2)) {
-            val nodeId = "raft-$i"
-            configurations.add(
-                Configuration(
-                    nodeId,
-                    nodes[nodeId]!!.port,
-                    httpPort + i,
-                    mapOf(),
-                    HashMap(nodes).apply { remove(nodeId) })
-            )
-        }
-        val servers = configurations
-            .map { RaftServer(it) }
-
-        CompositeFuture.all(servers.map(RaftServer::start)).block()
+        val raftServer = RaftServer(leaderNodeConfiguration)
+        raftServer
+            .start().block()
+        Thread.sleep(1000)
+        val raft = raftServer.raft
+        Assert.assertEquals(RaftStatus.lead, raft.status)
+        raft.addLog(SetCommandCreate("1", "123"))
+        raft.addLog(SetCommandCreate("2", "123"))
+        raft.addLog(SetCommandCreate("3", "123"))
+        Thread.sleep(1000)
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            raft.stateMachine.getDirect("1".toByteArray())
+        )
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            raft.stateMachine.getDirect("2".toByteArray())
+        )
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            raft.stateMachine.getDirect("3".toByteArray())
+        )
+        val otherNodeConfiguration = Configuration(
+            "raft-1",
+            81,
+            8081,
+            mapOf(),
+            mapOf(),
+            RaftAddress(80, "localhost")
+        )
+        val otherRaftServer = RaftServer(otherNodeConfiguration)
+        otherRaftServer
+            .start().block()
+        Thread.sleep(1000)
+        println(raft.peers)
+        val otherRaft = otherRaftServer.raft
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            otherRaft.stateMachine.getDirect("1".toByteArray())
+        )
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            otherRaft.stateMachine.getDirect("2".toByteArray())
+        )
+        Assert.assertArrayEquals(
+            "123".toByteArray(),
+            otherRaft.stateMachine.getDirect("3".toByteArray())
+        )
     }
+
+
 
 }

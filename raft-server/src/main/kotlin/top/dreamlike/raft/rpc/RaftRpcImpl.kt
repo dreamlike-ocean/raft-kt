@@ -158,7 +158,9 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
             .suspendHandle {
                 val body = JsonObject(it.request().body().await())
                     .mapTo(RaftServerInfo::class.java)
-                body.raftAddress = RaftAddress(it.request().remoteAddress())
+                rf.raftLog("recv add Server request: $body")
+                body.raftAddress =
+                    RaftAddress(body.raftAddress.port, it.request().remoteAddress().host())
                 val apply = Promise.promise<Map<ServerId, RaftAddress>>()
                 rf.addServer(body, apply)
                 val res = try {
@@ -166,7 +168,9 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
                     AdderServerResponse(true, null, rf.me, peerInfo)
                 } catch (t: NotLeaderException) {
                     val leaderInfo = t.leaderInfo
-                    AdderServerResponse(false, leaderInfo, rf.leadId, mapOf())
+                    AdderServerResponse(false, leaderInfo, rf.leadId!!, mapOf())
+                } catch (t: Exception) {
+                    t.printStackTrace()
                 }
                 it.json(res)
             }

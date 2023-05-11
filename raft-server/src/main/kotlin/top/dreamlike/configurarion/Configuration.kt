@@ -14,7 +14,7 @@ class Configuration(
     val httpPort: Int = 80,
     httpVertxOption: Map<String, Any> = mutableMapOf(),
     initPeerArgs: Map<ServerId, RaftAddress> = mapOf(),
-    connectNode: ServerId? = null
+    val connectNode: RaftAddress? = null
 ) {
     val initPeer = initPeerArgs.mapValues { it.value.SocketAddress() }
     val raftVertxOptions = singleVertxConfig()

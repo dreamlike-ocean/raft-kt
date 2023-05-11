@@ -162,20 +162,21 @@ class Raft(
             try {
                 if (addModeConfig != null) {
                     raftLog("start in addServerMode")
-                    rpc.test(addModeConfig.SocketAddress()).await()
+//                    rpc.test(addModeConfig.SocketAddress()).await()
                     var targetAddress = addModeConfig.SocketAddress()
                     //fast path先试一下
                     var response = rpc.addServer(
                         targetAddress,
-                        AddServerRequest(RaftAddress(80, "localhost"), me)
+                        AddServerRequest(RaftAddress(raftPort, "localhost"), me)
                     ).await()
                     while (!response.ok) {
                         targetAddress = response.leader!!.SocketAddress()
                         response = rpc.addServer(
                             targetAddress,
-                            AddServerRequest(RaftAddress(80, "localhost"), me)
+                            AddServerRequest(RaftAddress(raftPort, "localhost"), me)
                         ).await()
                     }
+                    raftLog("get now leader info $response")
                     leadId = response.leaderId
                     peers.putAll(response.peer.mapValues { it.value.SocketAddress() })
                     peers.remove(me)
@@ -248,6 +249,14 @@ class Raft(
 
     private fun broadcastLog(): MutableList<Future<AppendReply>> {
         val list = mutableListOf<Future<AppendReply>>()
+        if (peers.isEmpty()) {
+            val oldCommitindex = commitIndex
+            calCommitIndex()
+            if (oldCommitindex != commitIndex) {
+                stateMachine.applyLog(commitIndex)
+            }
+            return list
+        }
         for (peer in peers) {
             val peerServerId = peer.key
             val nextIndex = nextIndexes[peerServerId] ?: continue
@@ -298,10 +307,18 @@ class Raft(
         }
     }
 
-    //1 2 3 | 4
+    //1 2 3  -> 2
+    //1 2 -> 1
     private fun calCommitIndex() {
-        val list = matchIndexes.values.sortedBy(IntAdder::value)
-        commitIndex = list[list.size / 2].value
+        val values = matchIndexes.values.toMutableList()
+        values.add(IntAdder(stateMachine.getNowLogIndex()))
+        val list = values.sortedBy(IntAdder::value)
+        val index = if (list.size % 2 == 0) {
+            list.size / 2 - 1
+        } else {
+            list.size / 2
+        }
+        commitIndex = list[index].value
     }
 
 

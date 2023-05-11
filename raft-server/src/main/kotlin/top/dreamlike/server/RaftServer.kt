@@ -14,7 +14,13 @@ class RaftServer(val configuration: Configuration) {
         val raftOption = configuration.raftVertxOptions
         raftOption.eventLoopPoolSize = 1
         val raftVertx = Vertx.vertx(raftOption)
-        raft = Raft(raftVertx, configuration.initPeer, configuration.raftPort, configuration.me)
+        raft = Raft(
+            raftVertx,
+            configuration.initPeer,
+            configuration.raftPort,
+            configuration.me,
+            configuration.connectNode
+        )
         raftServerVerticleFactory = { RaftServerVerticle(configuration, raft) }
     }
     fun start() = configuration.httpVertx.let { serverVertx ->

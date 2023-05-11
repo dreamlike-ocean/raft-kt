@@ -9,4 +9,7 @@ class AdderServerResponse(
     val leaderId: ServerId,
     val peer: Map<ServerId, RaftAddress>
 ) {
+    override fun toString(): String {
+        return "AdderServerResponse(ok=$ok, leader=$leader, leaderId='$leaderId', peer=$peer)"
+    }
 }

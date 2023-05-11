@@ -10,6 +10,7 @@ import top.dreamlike.base.KV.DelCommand
 import top.dreamlike.base.KV.NoopCommand
 import top.dreamlike.base.KV.ServerConfigChangeCommand
 import top.dreamlike.base.KV.SetCommand
+import top.dreamlike.base.util.IntAdder
 import top.dreamlike.base.util.NonBlocking
 import top.dreamlike.base.util.SwitchThread
 import top.dreamlike.base.util.removeAll
@@ -153,7 +154,10 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         currentIndex: Int
     ) {
         serverChangeWaitQueue.add {
-            rf.peers[command.serverInfo.serverId] = command.serverInfo.raftAddress.SocketAddress()
+            val serverId = command.serverInfo.serverId
+            rf.peers[serverId] = command.serverInfo.raftAddress.SocketAddress()
+            rf.nextIndexes[serverId] = IntAdder(getNowLogIndex() + 1)
+            rf.matchIndexes[serverId] = IntAdder(0)
             applyEventWaitQueue.offer(currentIndex to {
                 serverChangeWaitQueue.removeFirst()
                 serverChangeWaitQueue.firstOrNull()?.invoke()
