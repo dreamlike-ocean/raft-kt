@@ -16,7 +16,7 @@ class Configuration(
     initPeerArgs: Map<ServerId, RaftAddress> = mapOf(),
     val connectNode: RaftAddress? = null
 ) {
-    val initPeer = initPeerArgs.mapValues { it.value.SocketAddress() }
+    val initPeer = initPeerArgs
     val raftVertxOptions = singleVertxConfig()
     val httpVertx = Vertx.vertx(VertxOptions(JsonObject(httpVertxOption)))
     override fun toString(): String {

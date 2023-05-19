@@ -19,7 +19,8 @@ class RaftServer(val configuration: Configuration) {
             configuration.initPeer,
             configuration.raftPort,
             configuration.me,
-            configuration.connectNode
+            configuration.connectNode,
+            configuration.httpPort
         )
         raftServerVerticleFactory = { RaftServerVerticle(configuration, raft) }
     }

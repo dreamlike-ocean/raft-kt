@@ -160,12 +160,12 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
                     .mapTo(RaftServerInfo::class.java)
                 rf.raftLog("recv add Server request: $body")
                 body.raftAddress =
-                    RaftAddress(body.raftAddress.port, it.request().remoteAddress().host())
+                    RaftAddress(body.raftAddress.port, it.request().remoteAddress().host(), body.raftAddress.httpPort)
                 val apply = Promise.promise<Map<ServerId, RaftAddress>>()
                 rf.addServer(body, apply)
                 val res = try {
                     val peerInfo = apply.future().await()
-                    AdderServerResponse(true, null, rf.me, peerInfo)
+                    AdderServerResponse(true, RaftAddress(rf.raftPort, "localhost", rf.httpPort), rf.me, peerInfo)
                 } catch (t: NotLeaderException) {
                     val leaderInfo = t.leaderInfo
                     AdderServerResponse(false, leaderInfo, rf.leadId!!, mapOf())
@@ -179,9 +179,9 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         return vertx.createHttpServer()
             .requestHandler(router)
             .listen(raftPort)
-            .flatMap {
-                rf.raftLog("raft core is listening on ${it.actualPort()}")
-                CompositeFuture.all(rf.peers.map { test(it.value) })
+            .flatMap { httpServer ->
+                rf.raftLog("raft core is listening on ${httpServer.actualPort()}")
+                CompositeFuture.all(rf.peers.map { test(it.value.SocketAddress()) })
             }
             .map(Unit)
     }

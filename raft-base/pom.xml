@@ -12,8 +12,6 @@
     <artifactId>raft-base</artifactId>
     <version>${base.version}</version>
     <properties>
-        <maven.compiler.source>20</maven.compiler.source>
-        <maven.compiler.target>20</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <kotlin.version>1.8.21</kotlin.version>
     </properties>

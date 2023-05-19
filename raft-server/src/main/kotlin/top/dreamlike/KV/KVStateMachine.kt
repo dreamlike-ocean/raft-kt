@@ -139,10 +139,10 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
             val log = Log(index, rf.currentTerm, command.toByteArray())
             logs.add(log)
             logDispatcher.appendLogs(listOf(log))
-            //这里特殊直接就apply
             if (command !is ServerConfigChangeCommand) {
                 applyEventWaitQueue.offer(index to callback)
             } else {
+                //这里特殊直接就apply
                 handleServerConfigChangeCommand(command, callback, index)
             }
         }
@@ -155,7 +155,8 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
     ) {
         serverChangeWaitQueue.add {
             val serverId = command.serverInfo.serverId
-            rf.peers[serverId] = command.serverInfo.raftAddress.SocketAddress()
+            rf.peers[serverId] = command.serverInfo.raftAddress
+            rf.raftLog("apply server add,new peer ios ${command.serverInfo.raftAddress}")
             rf.nextIndexes[serverId] = IntAdder(getNowLogIndex() + 1)
             rf.matchIndexes[serverId] = IntAdder(0)
             applyEventWaitQueue.offer(currentIndex to {

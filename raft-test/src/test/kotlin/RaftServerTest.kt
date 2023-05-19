@@ -76,7 +76,7 @@ class RaftServerTest {
         val leaderNodeConfiguration = Configuration(
             "raft-0",
             80,
-            8080,
+            8081,
             mapOf(),
             mapOf()
         )
@@ -105,7 +105,7 @@ class RaftServerTest {
         val otherNodeConfiguration = Configuration(
             "raft-1",
             81,
-            8081,
+            8082,
             mapOf(),
             mapOf(),
             RaftAddress(80, "localhost")

@@ -5,7 +5,7 @@ import top.dreamlike.base.raft.RaftAddress
 
 class AdderServerResponse(
     val ok: Boolean,
-    val leader: RaftAddress? = null,
+    val leader: RaftAddress,
     val leaderId: ServerId,
     val peer: Map<ServerId, RaftAddress>
 ) {

@@ -52,10 +52,11 @@ import kotlin.system.exitProcess
  */
 class Raft(
     private val singleThreadVertx: Vertx,
-    peer: Map<ServerId, SocketAddress>,
-    private val raftPort: Int,
+    peer: Map<ServerId, RaftAddress>,
+    val raftPort: Int,
     val me: ServerId,
-    val addModeConfig: RaftAddress? = null
+    val addModeConfig: RaftAddress? = null,
+    val httpPort :Int = -1
 ) : AbstractVerticle() {
 
     companion object {
@@ -122,7 +123,7 @@ class Raft(
     var nextIndexes = mutableMapOf<ServerId, IntAdder>()
     var matchIndexes = mutableMapOf<ServerId, IntAdder>()
 
-    val peers = mutableMapOf<ServerId, SocketAddress>().apply { putAll(peer) }
+    val peers = mutableMapOf<ServerId, RaftAddress>().apply { putAll(peer) }
 
     private val rpc: RaftRpc
     private val rpcHandler: RaftRpcHandler
@@ -167,20 +168,20 @@ class Raft(
                     //fast path先试一下
                     var response = rpc.addServer(
                         targetAddress,
-                        AddServerRequest(RaftAddress(raftPort, "localhost"), me)
+                        AddServerRequest(RaftAddress(raftPort, "localhost", httpPort), me)
                     ).await()
                     while (!response.ok) {
-                        targetAddress = response.leader!!.SocketAddress()
+                        targetAddress = response.leader.SocketAddress()
                         response = rpc.addServer(
                             targetAddress,
-                            AddServerRequest(RaftAddress(raftPort, "localhost"), me)
+                            AddServerRequest(RaftAddress(raftPort, "localhost", httpPort), me)
                         ).await()
                     }
                     raftLog("get now leader info $response")
                     leadId = response.leaderId
-                    peers.putAll(response.peer.mapValues { it.value.SocketAddress() })
+                    peers.putAll(response.peer)
                     peers.remove(me)
-                    peers[response.leaderId] = targetAddress
+                    peers[response.leaderId] = RaftAddress(targetAddress).apply { httpPort = response.leader.httpPort }
                 }
             } catch (t: Throwable) {
                 raftLog("addServerMode start error")
@@ -267,7 +268,7 @@ class Raft(
 
     private fun appendLogsToPeer(
         nextIndex: IntAdder,
-        peer: MutableMap.MutableEntry<ServerId, SocketAddress>,
+        peer: MutableMap.MutableEntry<ServerId, RaftAddress>,
         peerServerId: ServerId
     ): Future<AppendReply> {
         val nextIndexValue = nextIndex.value
@@ -288,7 +289,7 @@ class Raft(
             AppendRequest(currentTerm, nextIndexValue - 1, term, commitIndex, slice)
         }
 
-        return rpc.appendRequest(peer.value, ar).onSuccess {
+        return rpc.appendRequest(peer.value.SocketAddress(), ar).onSuccess {
             if (it.isSuccess) {
                 matchIndexes[peerServerId]?.value = logIndexSnap
                 nextIndexes[peerServerId]?.value = logIndexSnap + 1
@@ -340,7 +341,7 @@ class Raft(
         val allowNext = AtomicBoolean(false)
         val allFutures = mutableListOf<Future<RequestVoteReply>>()
         for (address in peers) {
-            val requestVoteReplyFuture = rpc.requestVote(address.value, buffer)
+            val requestVoteReplyFuture = rpc.requestVote(address.value.SocketAddress(), buffer)
                 .onSuccess {
                     val raft = this
                     if (it.isVoteGranted) {
@@ -403,7 +404,7 @@ class Raft(
             promise.fail(
                 NotLeaderException(
                     "not leader!",
-                    RaftAddress(peers[leadId])
+                    peers[leadId]
                 )
             )
             return
@@ -423,7 +424,7 @@ class Raft(
             promise.fail(
                 NotLeaderException(
                     "not leader!",
-                    RaftAddress(peers[leadId])
+                    peers[leadId]
                 )
             )
             return
@@ -431,7 +432,7 @@ class Raft(
         val applyConfigPromise = Promise.promise<Unit>()
         applyConfigPromise.future()
             .onComplete {
-                promise.complete(peers.mapValues { RaftAddress(it.value) })
+                promise.complete(peers)
             }
         val serverConfigChangeCommand = ServerConfigChangeCommand.create(request)
         context.runOnContext {
@@ -447,7 +448,7 @@ class Raft(
             promise.fail(
                 NotLeaderException(
                     "not leader!",
-                    RaftAddress(peers[leadId])
+                    peers[leadId]
                 )
             )
             return
@@ -467,7 +468,7 @@ class Raft(
                     promise.fail(
                         NotLeaderException(
                             "not leader!",
-                            RaftAddress(peers[leadId])
+                           peers[leadId]
                         )
                     )
                     return@launch
@@ -496,7 +497,7 @@ class Raft(
             val raftSnap = RaftSnap(
                 nextIndexes.mapValues { it.value.value },
                 matchIndexes.mapValues { it.value.value },
-                peers.mapValues { RaftAddress(it.value.port(), it.value.host()) },
+                peers.toMap(),
                 currentState
             )
             fn(raftSnap)

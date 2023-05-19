@@ -3,6 +3,7 @@ import org.junit.Assert
 import org.junit.Test
 import top.dreamlike.base.KV.ByteArrayKey
 import top.dreamlike.base.KV.NoopCommand
+import top.dreamlike.base.raft.RaftAddress
 import top.dreamlike.base.raft.RaftStatus
 import top.dreamlike.base.util.SingleThreadVertx
 import top.dreamlike.raft.Raft
@@ -28,22 +29,22 @@ class LogApplyTest {
     fun testAppply() {
         val rf0 = Raft(
             SingleThreadVertx(), mapOf(
-                "raft-1" to SocketAddress.inetSocketAddress(81, "localhost"),
-                "raft-2" to SocketAddress.inetSocketAddress(82, "localhost"),
+                "raft-1" to RaftAddress(SocketAddress.inetSocketAddress(81, "localhost")),
+                "raft-2" to RaftAddress(SocketAddress.inetSocketAddress(82, "localhost")),
             ), 80, "raft-0"
         )
 
         val rf1 = Raft(
             SingleThreadVertx(), mapOf(
-                "raft-0" to SocketAddress.inetSocketAddress(80, "localhost"),
-                "raft-2" to SocketAddress.inetSocketAddress(82, "localhost"),
+                "raft-0" to RaftAddress(SocketAddress.inetSocketAddress(80, "localhost")),
+                "raft-2" to RaftAddress(SocketAddress.inetSocketAddress(82, "localhost")),
             ), 81, "raft-1"
         )
 
         val rf2 = Raft(
             SingleThreadVertx(), mapOf(
-                "raft-1" to SocketAddress.inetSocketAddress(81, "localhost"),
-                "raft-0" to SocketAddress.inetSocketAddress(80, "localhost"),
+                "raft-1" to RaftAddress(SocketAddress.inetSocketAddress(81, "localhost")),
+                "raft-0" to RaftAddress(SocketAddress.inetSocketAddress(80, "localhost")),
             ), 82, "raft-2"
         )
 
