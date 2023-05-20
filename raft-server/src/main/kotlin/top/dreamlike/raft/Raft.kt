@@ -5,7 +5,6 @@ import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
-import io.vertx.core.net.SocketAddress
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -302,7 +301,7 @@ class Raft(
                 if (it.term > currentTerm) {
                     becomeFollower(it.term)
                 } else {
-                    adjustNextIndex(peerServerId)
+                    adjustNextIndex(peerServerId, it)
                 }
             }
         }
@@ -323,7 +322,7 @@ class Raft(
     }
 
 
-    private fun adjustNextIndex(serverId: ServerId) {
+    private fun adjustNextIndex(serverId: ServerId, _reply: AppendReply) {
         //todo 完善一下
         nextIndexes[serverId]?.add(-1)
     }
