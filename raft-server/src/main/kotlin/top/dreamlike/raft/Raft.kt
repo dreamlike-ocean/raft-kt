@@ -179,7 +179,6 @@ class Raft(
                     raftLog("get now leader info $response")
                     leadId = response.leaderId
                     peers.putAll(response.peer)
-                    peers.remove(me)
                     peers[response.leaderId] = RaftAddress(targetAddress).apply { httpPort = response.leader.httpPort }
                 }
             } catch (t: Throwable) {
@@ -332,7 +331,10 @@ class Raft(
         raftLog("start election")
         val buffer =
             RequestVote(currentTerm, stateMachine.getNowLogIndex(), stateMachine.getLastLogTerm())
-        val count = AtomicInteger(peers.size / 2)
+        //法定人数为一半+1 而peer为不包含当前节点的集合 所以peer.size + 1为集群总数
+        val quorum = (peers.size + 1) / 2 + 1
+        //-1因为自己给自己投了一票
+        val count = AtomicInteger(quorum - 1)
         val allowNextPromise = Promise.promise<Unit>()
         if (count.get() == 0) {
             allowNextPromise.complete()
@@ -431,7 +433,9 @@ class Raft(
         val applyConfigPromise = Promise.promise<Unit>()
         applyConfigPromise.future()
             .onComplete {
-                promise.complete(peers)
+                val res = peers.toMutableMap()
+                res.remove(request.serverId)
+                promise.complete(res)
             }
         val serverConfigChangeCommand = ServerConfigChangeCommand.create(request)
         context.runOnContext {

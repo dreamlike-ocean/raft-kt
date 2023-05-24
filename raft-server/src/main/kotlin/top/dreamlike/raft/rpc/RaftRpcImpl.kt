@@ -30,7 +30,7 @@ import top.dreamlike.server.NotLeaderException
 
 class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, RaftRpcHandler {
 
-    private val webClient = WebClient.create(
+    private val raftRpcClient = WebClient.create(
         vertx,
         WebClientOptions()
             .setMaxPoolSize(1)
@@ -50,7 +50,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         requestVote: RequestVote
     ): Future<RequestVoteReply> {
         return try {
-            webClient.post(remote.port(), remote.host(), requestVoteReply_path)
+            raftRpcClient.post(remote.port(), remote.host(), requestVoteReply_path)
                 .putHeader(server_id_header, rf.me)
                 .`as`(BodyCodec.buffer())
                 .sendBuffer(requestVote.toBuffer())
@@ -64,7 +64,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
 
     override fun test(remote: SocketAddress): Future<Unit> {
         return try {
-            webClient.post(remote.port(), remote.host(), test_path)
+            raftRpcClient.post(remote.port(), remote.host(), test_path)
                 .putHeader(server_id_header, rf.me)
                 .`as`(BodyCodec.buffer())
                 .send()
@@ -85,7 +85,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         appendRequest: AppendRequest
     ): Future<AppendReply> {
         return try {
-            webClient.post(remote.port(), remote.host(), appendRequest_path)
+            raftRpcClient.post(remote.port(), remote.host(), appendRequest_path)
                 .putHeader(server_id_header, rf.me)
                 .`as`(BodyCodec.buffer())
                 .sendBuffer(appendRequest.toBuffer())
@@ -102,7 +102,7 @@ class RaftRpcImpl(private val vertx: Vertx, private val rf: Raft) : RaftRpc, Raf
         request: AddServerRequest
     ): Future<AdderServerResponse> {
         return try {
-            webClient.post(remote.port(), remote.host(), ADD_SERVER_PATH)
+            raftRpcClient.post(remote.port(), remote.host(), ADD_SERVER_PATH)
                 .putHeader(server_id_header, rf.me)
                 .`as`(BodyCodec.json(AdderServerResponse::class.java))
                 .sendBuffer(Json.encodeToBuffer(request))

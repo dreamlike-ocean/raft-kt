@@ -15,7 +15,9 @@ import top.dreamlike.base.util.NonBlocking
 import top.dreamlike.base.util.SwitchThread
 import top.dreamlike.base.util.removeAll
 import top.dreamlike.raft.Log
+import top.dreamlike.raft.Log.Companion.mergeLogs
 import top.dreamlike.raft.Raft
+import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -83,7 +85,7 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
                 is NoopCommand -> {}
                 is SetCommand -> db[ByteArrayKey(command.key)] = command.value
                 is DelCommand -> db.remove(ByteArrayKey(command.key))
-                //不做任何事情以防止被continuezzhih
+                //不做任何事情以防止被continue直接忽略而不走推进apply
                 is ServerConfigChangeCommand -> {}
                 else -> continue
             }
@@ -106,6 +108,9 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         return if (logs.isEmpty()) termBase else logs.last().term
     }
 
+    /**
+     * 作为接收者的日志
+     */
     @NonBlocking
     fun insertLogs(prevIndex: Int, logs: List<Log>) {
         if (prevIndex > getNowLogIndex() || prevIndex < logBase) throw IllegalArgumentException("插入了高于当前index的日志")
@@ -117,6 +122,18 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         if (decreaseSize != 0) logDispatcher.decreaseSize(decreaseSize)
         this.logs.addAll(logs)
         logDispatcher.appendLogs(logs)
+
+        //这里特殊直接就apply
+        logs.forEach {
+            if (ServerConfigChangeCommand.isServerConfigChangeCommand(it.command)) {
+                handleServerConfigChangeCommand(
+                    ServerConfigChangeCommand(it.command),
+                    {},
+                    getNowLogIndex()
+                )
+            }
+        }
+
     }
 
     fun getTermByIndex(index: Int): Int {
@@ -131,6 +148,9 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         return logs.slice(inLogs until logs.size)
     }
 
+    /**
+     * leader状态时client请求附加日志
+     */
     @NonBlocking
     @SwitchThread(Raft::class)
     fun addLog(command: Command, callback: () -> Unit) {
@@ -153,10 +173,13 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         callback: () -> Unit,
         currentIndex: Int
     ) {
+        if (command.serverInfo.serverId == rf.me) {
+            return
+        }
         serverChangeWaitQueue.add {
             val serverId = command.serverInfo.serverId
             rf.peers[serverId] = command.serverInfo.raftAddress
-            rf.raftLog("apply server add,new peer ios ${command.serverInfo.raftAddress}")
+            rf.raftLog("apply server add,new peer is ${command.serverInfo.raftAddress}")
             rf.nextIndexes[serverId] = IntAdder(getNowLogIndex() + 1)
             rf.matchIndexes[serverId] = IntAdder(0)
             applyEventWaitQueue.offer(currentIndex to {
@@ -186,7 +209,12 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
         }
 
         val logFile: FileChannel =
-            FileChannel.open(Path.of(logFileName), StandardOpenOption.APPEND, StandardOpenOption.CREATE)
+            FileChannel.open(
+                Path.of(logFileName),
+                StandardOpenOption.APPEND,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.SYNC
+            )
 
         fun appendLog(log: Log, afterWriteToFile: () -> Unit) {
             executor.execute {
@@ -255,6 +283,28 @@ class KVStateMachine(private val vertx: Vertx, private val rf: Raft) {
                     it.writeToFile(logFile)
                 }
             }
+        }
+
+        @NonBlocking
+        @SwitchThread(LogDispatcher::class)
+        fun appendLogs(logs: List<Log>, allowMerge: Boolean = rf.peers.size >= 4) {
+            executor.execute {
+                if (allowMerge) {
+                    // LogFile的Open参数
+                    // StandardOpenOption.APPEND, StandardOpenOption.CREATE, StandardOpenOption.SYNC
+                    // )
+                    val byteBuffer = logs.mergeLogs()
+                    enqueueLogQueue(byteBuffer)
+                } else {
+                    logs.forEach {
+                        it.writeToFile(logFile)
+                    }
+                }
+            }
+        }
+
+        fun enqueueLogQueue(buffer: ByteBuffer) {
+
         }
     }
 }

@@ -16,6 +16,7 @@ sealed class Command {
                 1.toByte() -> SetCommand(rawCommand)
                 2.toByte() -> DelCommand(rawCommand)
                 3.toByte() -> ReadCommand(rawCommand)
+                4.toByte() -> ServerConfigChangeCommand(rawCommand)
                 else -> UnknownCommand(rawCommand)
             }
         }
@@ -136,6 +137,9 @@ class ServerConfigChangeCommand(rawCommand: ByteArray) : Command() {
             buffer.getBytes(res, 1)
             return ServerConfigChangeCommand(res)
         }
+
+        fun isServerConfigChangeCommand(rawCommand: ByteArray) = rawCommand[0] == (4).toByte()
+
     }
 
     override fun toByteArray(): ByteArray {
